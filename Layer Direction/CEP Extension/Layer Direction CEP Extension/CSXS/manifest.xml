@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="12.0" ExtensionBundleId="com.eduardo.layerdirection" ExtensionBundleVersion="0.2.0"
+    ExtensionBundleName="Layer Direction" xmlns:ExtensionBundleId="http://ns.adobe.com/extension">
+    <ExtensionList>
+        <Extension Id="com.eduardo.layerdirection.panel" Version="0.2.0" />
+    </ExtensionList>
+    <ExecutionEnvironment>
+        <HostList>
+            <!-- AEFT = After Effects. Version range covers the CEP 12 line
+                 (After Effects 25.0+) confirmed as current at build time. -->
+            <Host Name="AEFT" Version="[25.0,99.9]" />
+        </HostList>
+        <LocaleList>
+            <Locale Code="All" />
+        </LocaleList>
+        <RequiredRuntimeList>
+            <RequiredRuntime Name="CSXS" Version="12.0" />
+        </RequiredRuntimeList>
+    </ExecutionEnvironment>
+    <DispatchInfoList>
+        <Extension Id="com.eduardo.layerdirection.panel">
+            <DispatchInfo>
+                <Resources>
+                    <MainPath>./client/index.html</MainPath>
+                    <ScriptPath>./host/main.jsx</ScriptPath>
+                    <CEFCommandLine>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
+                    </CEFCommandLine>
+                </Resources>
+                <Lifecycle>
+                    <AutoVisible>true</AutoVisible>
+                </Lifecycle>
+                <UI>
+                    <Type>Panel</Type>
+                    <Menu>Layer Direction</Menu>
+                    <Geometry>
+                        <Size>
+                            <Height>720</Height>
+                            <Width>360</Width>
+                        </Size>
+                        <MinSize>
+                            <Height>560</Height>
+                            <Width>320</Width>
+                        </MinSize>
+                        <MaxSize>
+                            <Height>1400</Height>
+                            <Width>520</Width>
+                        </MaxSize>
+                    </Geometry>
+                    <Icons>
+                        <Icon Type="Normal">./client/icons/icon-normal.png</Icon>
+                        <Icon Type="RollOver">./client/icons/icon-rollover.png</Icon>
+                        <Icon Type="DarkNormal">./client/icons/icon-dark-normal.png</Icon>
+                        <Icon Type="DarkRollOver">./client/icons/icon-dark-rollover.png</Icon>
+                    </Icons>
+                </UI>
+            </DispatchInfo>
+        </Extension>
+    </DispatchInfoList>
+</ExtensionManifest>

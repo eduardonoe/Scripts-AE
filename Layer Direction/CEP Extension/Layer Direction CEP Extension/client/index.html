@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Layer Direction</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+    <!-- ===================== DIRECTION ===================== -->
+    <section class="card">
+        <div class="card-head">
+            <span class="dot dot-blue"></span>
+            <h2>Direction</h2>
+        </div>
+        <div class="dir-grid" id="dirGrid">
+            <button class="dir-btn" data-dir="diagNW" title="SE to NW"><svg viewBox="0 0 24 24"><path d="M18 18 L6 6 M6 6 L6 12 M6 6 L12 6" /></svg></button>
+            <button class="dir-btn" data-dir="up" title="bottom to top"><svg viewBox="0 0 24 24"><path d="M12 18 L12 6 M12 6 L7 11 M12 6 L17 11" /></svg></button>
+            <button class="dir-btn" data-dir="diagNE" title="SW to NE"><svg viewBox="0 0 24 24"><path d="M6 18 L18 6 M18 6 L12 6 M18 6 L18 12" /></svg></button>
+            <button class="dir-btn" data-dir="left" title="right to left"><svg viewBox="0 0 24 24"><path d="M18 12 L6 12 M6 12 L11 7 M6 12 L11 17" /></svg></button>
+            <button class="dir-btn is-on" data-dir="center" title="center to edges"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /></svg></button>
+            <button class="dir-btn" data-dir="right" title="left to right"><svg viewBox="0 0 24 24"><path d="M6 12 L18 12 M18 12 L13 7 M18 12 L13 17" /></svg></button>
+            <button class="dir-btn" data-dir="diagSW" title="NE to SW"><svg viewBox="0 0 24 24"><path d="M18 6 L6 18 M6 18 L6 12 M6 18 L12 18" /></svg></button>
+            <button class="dir-btn" data-dir="down" title="top to bottom"><svg viewBox="0 0 24 24"><path d="M12 6 L12 18 M12 18 L7 13 M12 18 L17 13" /></svg></button>
+            <button class="dir-btn" data-dir="diagSE" title="NW to SE"><svg viewBox="0 0 24 24"><path d="M6 6 L18 18 M18 18 L18 12 M18 18 L12 18" /></svg></button>
+        </div>
+
+        <div class="row">
+            <span class="dot dot-teal"></span>
+            <label class="field-label">Order</label>
+            <select id="orderSelect" class="select">
+                <option value="centerOut">Center out</option>
+                <option value="edgesIn">Edges in</option>
+                <option value="leftFirst">Left first</option>
+                <option value="rightFirst">Right first</option>
+                <option value="random">Random</option>
+            </select>
+            <input type="number" id="orderSeed" class="num-input num-input-sm" value="1" title="Seed for Random order" style="display:none">
+        </div>
+
+        <div class="row">
+            <span class="dot dot-amber"></span>
+            <label class="field-label">Stagger</label>
+            <input type="number" id="stagger" class="num-input num-input-sm" value="1" min="0">
+            <span class="unit">frames</span>
+        </div>
+    </section>
+
+    <!-- ===================== CLONE ===================== -->
+    <section class="card">
+        <div class="card-head">
+            <span class="dot dot-purple"></span>
+            <h2>Clone</h2>
+        </div>
+
+        <div class="row row-wrap">
+            <label class="checkbox">
+                <input type="checkbox" id="enableClone" checked>
+                <span>Enable clone</span>
+            </label>
+            <label class="checkbox" id="centerAnchorWrap" title="Recenters each clone's anchor point to its own visual bounding box before laying it out. Fixes misaligned grids from off-center sources (e.g. left-aligned text) and makes Scale/Rotation pivot uniformly for every clone. Leave off if you specifically want to keep each object's original anchor.">
+                <input type="checkbox" id="centerAnchor" checked>
+                <span>Center Anchor Point</span>
+            </label>
+        </div>
+
+        <label class="checkbox" id="randomObjectsWrap" title="Shuffles which slot each clone lands in. Only visible when cloning multiple distinct layers together - adjust the seed afterward in the CTRL layer's Effect Controls.">
+            <input type="checkbox" id="randomObjects">
+            <span>Random Objects</span>
+        </label>
+
+        <label class="checkbox">
+            <input type="checkbox" id="preserveMotion" checked>
+            <span>Preserve source animation</span>
+        </label>
+
+        <div class="clone-body" id="cloneBody">
+
+            <div class="mode-row">
+                <label class="field-label">Mode</label>
+                <button class="mode-btn is-on" data-mode="grid" title="Grid">
+                    <svg viewBox="0 0 24 24">
+                        <rect x="3" y="3" width="5" height="5" rx="1"/><rect x="9.5" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/>
+                        <rect x="3" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="16" y="9.5" width="5" height="5" rx="1"/>
+                        <rect x="3" y="16" width="5" height="5" rx="1"/><rect x="9.5" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/>
+                    </svg>
+                </button>
+                <button class="mode-btn" data-mode="radial" title="Radial">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="3.6" r="1.8"/><circle cx="18.7" cy="7.3" r="1.8"/><circle cx="18.7" cy="16.7" r="1.8"/>
+                        <circle cx="12" cy="20.4" r="1.8"/><circle cx="5.3" cy="16.7" r="1.8"/><circle cx="5.3" cy="7.3" r="1.8"/>
+                    </svg>
+                </button>
+                <button class="mode-btn" data-mode="circular" title="Circular">
+                    <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="2"/>
+                        <circle cx="12" cy="4.5" r="1.6"/><circle cx="18.5" cy="8.2" r="1.6"/><circle cx="18.5" cy="15.8" r="1.6"/>
+                        <circle cx="12" cy="19.5" r="1.6"/><circle cx="5.5" cy="15.8" r="1.6"/><circle cx="5.5" cy="8.2" r="1.6"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="row grid-fields">
+                <label class="field-label">Cols</label>
+                <input type="number" id="cols" class="num-input" value="5" min="1">
+                <label class="field-label">Rows</label>
+                <input type="number" id="rows" class="num-input" value="5" min="1">
+            </div>
+            <div class="row count-field">
+                <label class="field-label">Count</label>
+                <input type="number" id="count" class="num-input" value="30" min="1">
+            </div>
+
+            <label class="checkbox">
+                <input type="checkbox" id="autoGap" checked>
+                <span>Auto gap <em>50px</em></span>
+            </label>
+
+            <div class="row spacing-fields">
+                <label class="field-label">Sp X</label>
+                <input type="number" id="spX" class="num-input" value="200">
+                <label class="field-label">Y</label>
+                <input type="number" id="spY" class="num-input" value="200">
+            </div>
+            <div class="row radius-field">
+                <label class="field-label">Radius</label>
+                <input type="number" id="radius" class="num-input" value="400">
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== ACTIONS ===================== -->
+    <div class="actions">
+        <button class="btn btn-primary" id="runBtn">RUN</button>
+        <button class="btn" id="rebuildBtn">Rebuild</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+</div>
+
+<!-- ===================== REBUILD CONFIRM MODAL ===================== -->
+<div class="modal-overlay" id="rebuildModal">
+    <div class="modal">
+        <h3>Rebuild this clone precomp?</h3>
+        <div class="modal-body" id="rebuildModalBody"></div>
+        <div class="modal-actions">
+            <button class="btn" id="rebuildCancel">Cancel</button>
+            <button class="btn btn-primary" id="rebuildConfirm">Rebuild</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/CSInterface.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

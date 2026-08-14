@@ -1,0 +1,139 @@
+Guia rápido: como empacotar uma extensão CEP em ZXP
+
+Este passo a passo funciona para painéis CEP em geral (After Effects, Photoshop, etc.), inclusive para o Layer Direction.
+
+------------------------------------------------------------
+1. Baixar o ZXPSignCmd
+------------------------------------------------------------
+
+A Adobe fornece a ferramenta oficial de assinatura de extensões em ZXP:
+
+1. Acesse o repositório Adobe CEP Resources:
+   - https://github.com/Adobe-CEP/CEP-Resources/tree/master/ZXPSignCMD
+2. Baixe a versão estável do ZXPSignCmd para o seu sistema (Windows ou macOS).
+3. Extraia o binário:
+   - Windows: ZXPSignCmd.exe
+   - macOS: ZXPSignCmd
+4. Coloque o binário em uma pasta de trabalho conveniente (por exemplo, junto ao projeto da extensão ou em uma pasta de ferramentas).
+
+------------------------------------------------------------
+2. Preparar a pasta da extensão
+------------------------------------------------------------
+
+Garanta que a extensão esteja organizada em uma pasta única, que será usada como "input directory" do ZXPSignCmd. Exemplo (Layer Direction CEP):
+
+Layer Direction CEP Extension/
+├── CSXS/
+│   └── manifest.xml       (descreve o painel para o host)
+├── client/
+│   ├── index.html         (interface)
+│   ├── css/style.css      (estilos)
+│   ├── js/app.js          (lógica de UI)
+│   ├── js/CSInterface.js  (ponte CEP)
+│   └── icons/             (ícones da aba do painel)
+└── host/
+    ├── engine.jsx         (motor de clones / lógica principal)
+    └── main.jsx           (funções chamadas via evalScript)
+
+Essa pasta inteira será empacotada dentro do ZXP.
+
+------------------------------------------------------------
+3. Gerar um certificado self-signed (.p12)
+------------------------------------------------------------
+
+Para assinar o ZXP você precisa de um certificado. Durante desenvolvimento e distribuição pequena, um certificado self-signed é suficiente (apenas mostra um aviso de "publisher não verificado" na instalação).
+
+No terminal / Prompt de comando, na pasta onde está o ZXPSignCmd:
+
+ZXPSignCmd -selfSignedCert BR Sergipe "SeuNomeOuEmpresa" "LayerDirection" senhaFortinha cert-layerdirection.p12
+
+Parâmetros:
+- BR              -> país (Brasil)
+- Sergipe        -> estado ou região
+- "SeuNomeOuEmpresa" -> Organization (nome da empresa ou pessoa)
+- "LayerDirection"   -> Common Name (nome do produto/extension)
+- senhaFortinha      -> senha do certificado
+- cert-layerdirection.p12 -> nome do arquivo de certificado gerado
+
+Esse comando cria o arquivo "cert-layerdirection.p12" protegido pela senha escolhida.
+
+------------------------------------------------------------
+4. Assinar e empacotar em .zxp
+------------------------------------------------------------
+
+Com o certificado pronto, use o ZXPSignCmd para empacotar e assinar a extensão:
+
+ZXPSignCmd -sign "Layer Direction CEP Extension" Layer-Direction.zxp cert-layerdirection.p12 senhaFortinha
+
+Parâmetros:
+- "Layer Direction CEP Extension" -> pasta raiz da extensão (inputDirectory)
+- Layer-Direction.zxp              -> nome do arquivo ZXP de saída
+- cert-layerdirection.p12          -> certificado gerado no passo anterior
+- senhaFortinha                    -> senha do .p12
+
+Opcional: adicionar um servidor de timestamp (melhor para certificação mais formal):
+
+ZXPSignCmd -sign "Layer Direction CEP Extension" Layer-Direction.zxp cert-layerdirection.p12 senhaFortinha -tsa http://timestamp.digicert.com
+
+Depois de gerar o .zxp, você pode verificar a assinatura:
+
+ZXPSignCmd -verify Layer-Direction.zxp
+
+Se estiver tudo ok, o comando retorna algo como "Signature verified successfully".
+
+------------------------------------------------------------
+5. Instalar o ZXP
+------------------------------------------------------------
+
+Para instalar em máquinas de usuários sem pedir que mexam em registro ou PlayerDebugMode, distribua o arquivo .zxp e use um instalador dedicado (por exemplo, ZXPInstaller ou ferramentas similares):
+
+1. Usuário baixa o arquivo Layer-Direction.zxp.
+2. Abre o ZXPInstaller (ou equivalente).
+3. Arrasta o arquivo .zxp para o instalador.
+4. O instalador copia a extensão para a pasta correta do sistema, por exemplo:
+   - Windows (64-bit):
+     C:\Program Files\Common Files\Adobe\CEP\extensions
+   - macOS (system extension folder):
+     /Library/Application Support/Adobe/CEP/extensions
+
+Após a instalação:
+- Reiniciar o After Effects.
+- Abrir o painel via Window → Extensions → Layer Direction.
+
+------------------------------------------------------------
+6. PlayerDebugMode versus ZXP assinado
+------------------------------------------------------------
+
+Existem dois modos principais de rodar extensões CEP:
+
+1) Modo debug (PlayerDebugMode = 1)
+   - Permite carregar extensões diretamente da pasta de extensões, sem assinatura.
+   - Útil durante desenvolvimento ou testes internos.
+   - Requer ajustar uma preferência do Adobe CEP:
+     - macOS: defaults write com.adobe.CSXS.12 PlayerDebugMode 1
+     - Windows: criar/ajustar PlayerDebugMode = 1 em
+       HKEY_CURRENT_USER\Software\Adobe\CSXS.12
+
+2) ZXP assinado
+   - Extensão é empacotada em .zxp com ZXPSignCmd e um certificado (.p12).
+   - Instalação é feita por um instalador de ZXP, sem precisar mexer em PlayerDebugMode.
+   - É o caminho recomendado para distribuição para usuários finais.
+
+Durante desenvolvimento do painel (como o Layer Direction CEP), é comum:
+- Trabalhar inicialmente em modo debug (copiando a pasta para a CEP/extensions).
+- Quando a interface e o fluxo estabilizam, gerar o .p12 e o .zxp e passar a distribuir apenas o pacote assinado.
+
+------------------------------------------------------------
+Resumo mínimo dos comandos
+------------------------------------------------------------
+
+# Gerar certificado self-signed
+ZXPSignCmd -selfSignedCert BR Sergipe "SeuNomeOuEmpresa" "LayerDirection" senhaFortinha cert-layerdirection.p12
+
+# Assinar e empacotar a extensão em ZXP
+ZXPSignCmd -sign "Layer Direction CEP Extension" Layer-Direction.zxp cert-layerdirection.p12 senhaFortinha
+
+# Verificar assinatura
+ZXPSignCmd -verify Layer-Direction.zxp
+
+Com esses três comandos você já consegue reaproveitar o fluxo para qualquer CEP extension futura.
