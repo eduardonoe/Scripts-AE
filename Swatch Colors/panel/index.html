@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: file:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:;">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Swatch Colors</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body data-ui-size="compact" data-skin="violet">
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div class="brand-copy">
+        <h1>Swatch Colors <small>1.0</small></h1>
+        <p id="compName">No composition analyzed</p>
+      </div>
+      <button id="settingsBtn" class="icon-btn" title="Panel settings" aria-label="Panel settings">⚙</button>
+    </header>
+
+    <div class="settings-menu" id="settingsMenu" hidden>
+      <div class="settings-group">
+        <span>Interface size</span>
+        <div class="size-options">
+          <button data-ui-size="compact">Small</button>
+          <button data-ui-size="standard">Medium</button>
+          <button data-ui-size="large">Large</button>
+        </div>
+      </div>
+      <div class="settings-group">
+        <span>Appearance</span>
+        <div class="skin-options">
+          <button data-skin-option="violet">Violet</button>
+          <button data-skin-option="midnight-indigo">Midnight Indigo</button>
+          <button data-skin-option="graphite">Graphite</button>
+          <button data-skin-option="minimal-flat">Minimal Flat</button>
+          <button data-skin-option="adobe-native">Adobe Native</button>
+          <button data-skin-option="cyber-slate">Cyber Slate</button>
+        </div>
+      </div>
+    </div>
+
+    <nav class="view-tabs" aria-label="Swatch Colors views">
+      <button class="view-tab active" data-view="composition"><span class="tab-icon">⌁</span>Composition</button>
+      <button class="view-tab" data-view="library"><span class="tab-icon">▰</span>Saved palettes <small id="savedBadge">0</small></button>
+    </nav>
+
+    <div id="compositionView" class="view active">
+      <div id="cards" class="cards">
+        <section class="color-card" data-card="capture">
+          <button type="button" class="card-header" aria-expanded="true">
+            <span class="card-icon capture-icon">⌁</span>
+            <strong class="card-title">CURRENT FRAME</strong>
+            <span class="card-tools"><i class="header-check"></i><span class="chevron">⌄</span></span>
+          </button>
+          <button type="button" class="drag-grip" aria-label="Reorder Current Frame">⋮⋮</button>
+          <div class="card-body">
+            <div class="card-body-inner">
+            <div class="capture-copy"><span class="live-dot"></span><div><strong id="currentFrameName">Active composition</strong><small id="captureHint">Read colors from the active composition</small></div></div>
+            <button id="scanBtn" class="scan-btn"><span class="scan-icon">⌁</span><span>READ COMPOSITION</span></button>
+            <div class="progress" id="progress"><i></i></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="color-card" data-card="exact">
+          <button type="button" class="card-header" aria-expanded="true">
+            <span class="card-icon exact-icon">◈</span>
+            <strong class="card-title">EXACT COLORS</strong>
+            <span class="card-tools"><span class="count" id="exactCount">0</span><span class="chevron">⌄</span></span>
+          </button>
+          <button type="button" class="drag-grip" aria-label="Reorder Exact Colors">⋮⋮</button>
+          <div class="card-body">
+            <div class="card-body-inner">
+            <small class="section-note">Solid sources only</small>
+            <div class="swatch-grid" id="exactGrid"></div>
+            <div class="empty" id="exactEmpty"><span class="empty-glyph">◇</span><p>Solid layers, shape fills, strokes, text, and Fill effects appear here.</p></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="color-card" data-card="based">
+          <button type="button" class="card-header" aria-expanded="true">
+            <span class="card-icon based-icon">✦</span>
+            <strong class="card-title">DERIVED PALETTE</strong>
+            <span class="card-tools"><span class="count" id="basedCount">0</span><span class="chevron">⌄</span></span>
+          </button>
+          <button type="button" class="drag-grip" aria-label="Reorder Derived Palette">⋮⋮</button>
+          <div class="card-body">
+            <div class="card-body-inner">
+            <small class="section-note">Photo, video, and gradients</small>
+            <div class="swatch-grid" id="basedGrid"></div>
+            <div class="empty" id="basedEmpty"><span class="empty-glyph">✦</span><p>Photos, videos, and gradients become a cohesive scene palette.</p></div>
+            <div class="variation-bar">
+              <div><b>Variations</b><small id="variationLabel">Balanced</small></div>
+              <div class="variation-actions">
+                <button class="mini-btn" id="variationMode" title="Change variation style">◐</button>
+                <button class="variation-btn" id="variationBtn">GENERATE VARIATIONS</button>
+              </div>
+            </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="color-card" data-card="memory">
+          <button type="button" class="card-header" aria-expanded="true">
+            <span class="card-icon memory-icon">◷</span>
+            <strong class="card-title">PALETTE MEMORY</strong>
+            <span class="card-tools"><span class="count" id="historyCount">0</span><span class="chevron">⌄</span></span>
+          </button>
+          <button type="button" class="drag-grip" aria-label="Reorder Palette Memory">⋮⋮</button>
+          <div class="card-body">
+            <div class="card-body-inner">
+            <div class="save-row">
+              <input id="paletteName" maxlength="42" placeholder="Palette name" aria-label="Palette name">
+              <button id="savePaletteBtn" disabled>SAVE</button>
+            </div>
+            <section class="history-panel" id="historyPanel" hidden>
+              <div class="history-title"><span>Recent history</span><small>Current + 2 previous</small></div>
+              <div class="history-list" id="historyList"></div>
+            </section>
+            <div class="history-empty" id="historyEmpty">Previous palettes appear here after the next read or manual load.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div id="libraryView" class="view">
+      <div id="savedList" class="saved-list"></div>
+      <div id="libraryEmpty" class="library-empty"><span>▦</span><b>No saved palettes</b><p>Read a composition, name the palette, and save it for later.</p></div>
+    </div>
+
+    <footer>
+      <div class="status" id="status"><span></span><p>Ready to analyze</p></div>
+      <p class="tip">Click: Fill · Shift-click: Tint · Right-click: Copy HEX · Shift-right-click: Details</p>
+    </footer>
+  </main>
+
+  <div class="popover" id="popover" hidden>
+    <div class="popover-color" id="popoverColor"></div>
+    <div><strong id="popoverHex">#000000</strong><small id="popoverSource">Color</small></div>
+    <button id="copyBtn">Copy</button><button id="applyBtn">Apply Fill</button>
+  </div>
+  <div class="toast" id="toast"></div>
+  <canvas id="sampleCanvas" width="160" height="90" hidden></canvas>
+  <script src="js/main.js"></script>
+</body>
+</html>

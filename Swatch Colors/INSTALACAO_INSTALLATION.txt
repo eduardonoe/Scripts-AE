@@ -1,0 +1,85 @@
+============================================================
+SWATCH COLORS — INSTALAÇÃO / INSTALLATION
+============================================================
+
+PORTUGUÊS
+------------------------------------------------------------
+
+IMPORTANTE: extraia todo o conteúdo do arquivo ZIP antes de
+executar o instalador. Não execute o arquivo BAT diretamente
+de dentro do ZIP.
+
+COMO INSTALAR
+
+1. Extraia o arquivo Swatch_Colors_CEP_1.0.zip para uma pasta.
+2. Mantenha o arquivo Install_Swatch_Colors.bat ao lado da
+   pasta "Swatch Colors".
+3. Clique com o botão direito em Install_Swatch_Colors.bat.
+4. Escolha "Executar como administrador".
+5. Autorize a janela de segurança do Windows.
+6. Aguarde a mensagem de instalação concluída.
+7. Feche e abra novamente o Adobe After Effects.
+8. No After Effects, abra:
+   Window > Extensions (Legacy) > Swatch Colors
+
+POR QUE É NECESSÁRIO EXECUTAR COMO ADMINISTRADOR?
+
+A extensão é instalada na pasta compartilhada do sistema:
+
+C:\Program Files\Common Files\Adobe\CEP\extensions\Swatch Colors
+
+O Windows protege a pasta "Program Files" e exige privilégios
+de administrador para criar ou substituir arquivos nela. O
+instalador solicita essa permissão automaticamente, mas também
+é recomendado usar "Executar como administrador".
+
+ATUALIZAÇÕES
+
+Para atualizar o painel, extraia o novo pacote e execute o BAT
+novamente como administrador. A paleta ativa, o histórico e as
+paletas salvas são armazenados separadamente e permanecem
+preservados durante a atualização.
+
+Se o painel não aparecer, confirme que o After Effects foi
+reiniciado depois da instalação.
+
+
+ENGLISH
+------------------------------------------------------------
+
+IMPORTANT: extract the entire ZIP archive before running the
+installer. Do not run the BAT file directly from inside the ZIP.
+
+HOW TO INSTALL
+
+1. Extract Swatch_Colors_CEP_1.0.zip to a folder.
+2. Keep Install_Swatch_Colors.bat beside the "Swatch Colors"
+   folder.
+3. Right-click Install_Swatch_Colors.bat.
+4. Choose "Run as administrator".
+5. Approve the Windows security prompt.
+6. Wait for the installation-complete message.
+7. Close and reopen Adobe After Effects.
+8. In After Effects, open:
+   Window > Extensions (Legacy) > Swatch Colors
+
+WHY ARE ADMINISTRATOR PRIVILEGES REQUIRED?
+
+The extension is installed in the shared system folder:
+
+C:\Program Files\Common Files\Adobe\CEP\extensions\Swatch Colors
+
+Windows protects the "Program Files" directory and requires
+administrator privileges to create or replace files there. The
+installer requests elevation automatically, but using
+"Run as administrator" is also recommended.
+
+UPDATES
+
+To update the panel, extract the new package and run the BAT
+again as administrator. The active palette, recent history, and
+saved palettes are stored separately and remain available after
+the update.
+
+If the panel does not appear, confirm that After Effects was
+restarted after installation.
