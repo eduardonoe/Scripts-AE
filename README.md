@@ -5,6 +5,7 @@ Repositorio de scripts e extensoes para Adobe After Effects.
 ## Projetos atuais
 
 - `Layer Direction/`: script e extensao CEP do Layer Direction.
+- `Swatch Colors/`: extensao CEP para extrair, salvar e aplicar paletas da composicao ativa.
 - `Text Splitter/`: script para dividir textos em letras, palavras ou linhas.
 
 ## Regra principal
