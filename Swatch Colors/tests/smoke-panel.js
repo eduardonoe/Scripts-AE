@@ -10,6 +10,7 @@ const { chromium } = require("playwright");
   page.on("console", function (message) { if (message.type() === "error") errors.push(message.text()); });
 
   await page.addInitScript(function () {
+    window.__SWATCH_COLORS_TEST__ = true;
     window.__hostCalls = [];
     window.__copiedHex = [];
     document.execCommand = function (command) {
@@ -44,6 +45,19 @@ const { chromium } = require("playwright");
   const panelPath = path.resolve(__dirname, "..", "panel", "index.html");
   await page.goto(pathToFileURL(panelPath).href);
   await page.waitForSelector(".swatch");
+  const paletteCheck = await page.evaluate(function () {
+    var samples = [], colors = [[1, 0, 0, 1], [0, 0, 1, 1], [0, 1, 0, 1], [.45, .45, .45, 1]];
+    colors.forEach(function (color, index) { for (var i = 0; i < 8 + index; i++) samples.push(color); });
+    samples.push([1, 1, 0, 0]);
+    var result = window.__swatchColorsInternals.paletteFromSamples(samples, 4);
+    var allFromFrame = result.every(function (item) {
+      return colors.some(function (color) {
+        return Math.abs(item.rgb[0] - color[0] * 255) < 1 && Math.abs(item.rgb[1] - color[1] * 255) < 1 && Math.abs(item.rgb[2] - color[2] * 255) < 1;
+      });
+    });
+    return { count: result.length, allFromFrame: allFromFrame };
+  });
+  if (paletteCheck.count !== 4 || !paletteCheck.allFromFrame) throw new Error("Derived palette invented averaged colors not present in the frame");
   const historyItems = await page.locator("#historyList .history-item").count();
   if (historyItems !== 2) throw new Error("History was not limited to two previous palettes");
 

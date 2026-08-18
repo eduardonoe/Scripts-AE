@@ -87,14 +87,39 @@
   }
 
   function paletteFromSamples(samples, count) {
-    var points=[];
-    for(var i=0;i<samples.length;i++){var p=[samples[i][0]*255,samples[i][1]*255,samples[i][2]*255],max=Math.max(p[0],p[1],p[2]),min=Math.min(p[0],p[1],p[2]);if(max>=8&&min<=248)points.push(p);}
-    if(count<=0)return[];
-    if(!points.length)return[]; var cent=[]; for(i=0;i<count;i++)cent.push(points[Math.floor((i+.5)*points.length/count)%points.length].slice());
-    var assign=new Array(points.length), rounds=8;
-    while(rounds--){var sums=[];for(i=0;i<count;i++)sums.push([0,0,0,0]);for(var p=0;p<points.length;p++){var best=0,bd=Infinity;for(i=0;i<count;i++){var dr=points[p][0]-cent[i][0],dg=points[p][1]-cent[i][1],db=points[p][2]-cent[i][2],d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;best=i;}}assign[p]=best;sums[best][0]+=points[p][0];sums[best][1]+=points[p][1];sums[best][2]+=points[p][2];sums[best][3]++;}for(i=0;i<count;i++)if(sums[i][3])cent[i]=[sums[i][0]/sums[i][3],sums[i][1]/sums[i][3],sums[i][2]/sums[i][3]];}
-    var weights=[];for(i=0;i<count;i++)weights[i]=0;for(i=0;i<assign.length;i++)weights[assign[i]]++;return cent.map(function(rgb,i){return{rgb:rgb,source:"Dominant sampled color · photo, video, or gradient",weight:weights[i]};}).filter(function(x,i,a){return x.weight>3&&a.every(function(y,j){return j>=i||distance(x.rgb,y.rgb)>25;});}).sort(function(a,b){return b.weight-a.weight;}).slice(0,count);
+    var bins={},points=[],i;
+    for(i=0;i<samples.length;i++){
+      if(samples[i].length>3&&samples[i][3]<.05)continue;
+      var rgb=[clamp(samples[i][0]*255),clamp(samples[i][1]*255),clamp(samples[i][2]*255)];
+      var key=Math.floor(rgb[0]/12)+","+Math.floor(rgb[1]/12)+","+Math.floor(rgb[2]/12),bin=bins[key];
+      if(!bin)bin=bins[key]={rgb:[0,0,0],weight:0};
+      bin.rgb[0]+=rgb[0];bin.rgb[1]+=rgb[1];bin.rgb[2]+=rgb[2];bin.weight++;
+    }
+    Object.keys(bins).forEach(function(key){var bin=bins[key];bin.rgb=[bin.rgb[0]/bin.weight,bin.rgb[1]/bin.weight,bin.rgb[2]/bin.weight];points.push(bin);});
+    if(count<=0||!points.length)return[];
+    count=Math.min(count,points.length);
+    points.sort(function(a,b){return b.weight-a.weight;});
+    var cent=[points[0].rgb.slice()];
+    while(cent.length<count){
+      var next=null,nextScore=-1;
+      points.forEach(function(point){var nearest=Infinity;cent.forEach(function(center){nearest=Math.min(nearest,distanceSquared(point.rgb,center));});var hsl=rgbToHsl(point.rgb),score=nearest*Math.sqrt(point.weight)*(1+hsl[1]*.35);if(score>nextScore){nextScore=score;next=point;}});
+      cent.push(next.rgb.slice());
+    }
+    var assign=new Array(points.length),rounds=10;
+    while(rounds--){
+      var sums=[];for(i=0;i<count;i++)sums.push([0,0,0,0]);
+      points.forEach(function(point,p){var best=0,bestDistance=Infinity;for(var c=0;c<count;c++){var d=distanceSquared(point.rgb,cent[c]);if(d<bestDistance){bestDistance=d;best=c;}}assign[p]=best;sums[best][0]+=point.rgb[0]*point.weight;sums[best][1]+=point.rgb[1]*point.weight;sums[best][2]+=point.rgb[2]*point.weight;sums[best][3]+=point.weight;});
+      for(i=0;i<count;i++)if(sums[i][3])cent[i]=[sums[i][0]/sums[i][3],sums[i][1]/sums[i][3],sums[i][2]/sums[i][3]];
+    }
+    var clusters=[];for(i=0;i<count;i++)clusters.push({center:cent[i],weight:0,members:[]});
+    points.forEach(function(point,p){clusters[assign[p]].weight+=point.weight;clusters[assign[p]].members.push(point);});
+    return clusters.filter(function(cluster){return cluster.weight>0;}).map(function(cluster){
+      var representative=null,bestScore=Infinity;
+      cluster.members.forEach(function(point){var saturation=rgbToHsl(point.rgb)[1],score=distanceSquared(point.rgb,cluster.center)/(1+saturation*.45);if(score<bestScore){bestScore=score;representative=point.rgb;}});
+      return{rgb:representative.slice(),source:"Dominant sampled color · rendered frame",weight:cluster.weight};
+    }).sort(function(a,b){return b.weight-a.weight;}).filter(function(color,index,list){return list.every(function(other,j){return j>=index||distance(color.rgb,other.rgb)>22;});}).slice(0,count);
   }
+  function distanceSquared(a,b){var x=a[0]-b[0],y=a[1]-b[1],z=a[2]-b[2];return x*x+y*y+z*z;}
   function distance(a,b){var x=a[0]-b[0],y=a[1]-b[1],z=a[2]-b[2];return Math.sqrt(x*x+y*y+z*z);}
   function delay(ms){return new Promise(function(resolve){setTimeout(resolve,ms);});}
 
@@ -102,7 +127,7 @@
     var pending=null,scanData=null,samples=[];busy(true); els.scan.querySelector("span:last-child").textContent="Analyzing…";
     delay(70).then(function(){return evalHost("SwatchColors.scanExact()",4);}).then(function(data){
       scanData=data;
-      var chain=Promise.resolve(),cols=10,rows=6,batchSize=8;
+      var chain=Promise.resolve(),cols=20,rows=12,batchSize=16;
       for(var start=0;start<cols*rows;start+=batchSize)(function(batchStart){
         chain=chain.then(function(){return evalHost("SwatchColors.sampleBatch("+batchStart+","+batchSize+","+cols+","+rows+")",4);}).then(function(batch){
           if(batch.comp!==scanData.comp)throw new Error("The active composition changed during analysis.");
@@ -112,8 +137,8 @@
       return chain.then(function(){data.samples=samples;return data;});
     }).then(function(data){
       var propertyExact=data.exact.map(exactToDisplay);
-      pending={name:data.comp,comp:data.comp,time:data.time,exact:propertyExact.slice(0,20),based:[]};
-      pending.based=paletteFromSamples(data.samples||[],Math.max(0,20-pending.exact.length)).filter(function(color){return !pending.exact.some(function(exact){return distance(color.rgb,exact.rgb)<=10;});});activatePalette(pending,true);els.name.value=pending.name;
+      pending={name:data.comp,comp:data.comp,time:data.time,exact:propertyExact.slice(0,64),based:[]};
+      pending.based=paletteFromSamples(data.samples||[],12).filter(function(color){return !pending.exact.some(function(exact){return distance(color.rgb,exact.rgb)<=10;});});activatePalette(pending,true);els.name.value=pending.name;
       setStatus((state.exact.length+state.based.length)+" colors found");toast("Palettes created");
     })
       .catch(function(e){setStatus(e.message,"error");toast(e.message);}).then(function(){busy(false);els.scan.querySelector("span:last-child").textContent="Read composition";});
@@ -223,4 +248,5 @@
   }
 
   els.scan.addEventListener("click",scan);els.save.addEventListener("click",savePalette);els.name.addEventListener("keydown",function(e){if(e.keyCode===13&&!els.save.disabled)savePalette();});$$(".view-tab").forEach(function(tab){tab.addEventListener("click",function(){switchView(tab.dataset.view);});});$("#variationBtn").addEventListener("click",variations);$("#variationMode").addEventListener("click",variations);$("#copyBtn").addEventListener("click",function(){if(state.current)copy(state.current.hex);});$("#applyBtn").addEventListener("click",function(){if(state.current)applyEffect(state.current.hex,"fill");});els.settingsBtn.addEventListener("click",function(e){e.stopPropagation();els.settings.hidden=!els.settings.hidden;});$$("[data-ui-size]").forEach(function(button){button.addEventListener("click",function(){setUiSize(button.getAttribute("data-ui-size"));});});$$("[data-skin-option]").forEach(function(button){button.addEventListener("click",function(){setSkin(button.getAttribute("data-skin-option"));});});document.addEventListener("pointerdown",function(e){if(!els.pop.hidden&&!e.target.closest("#popover")&&!e.target.closest(".swatch"))els.pop.hidden=true;if(!els.settings.hidden&&!e.target.closest("#settingsMenu")&&!e.target.closest("#settingsBtn"))els.settings.hidden=true;});setUiSize(localStorage.getItem("swatchUiSize")||"compact");setSkin(localStorage.getItem("swatchSkin")||"violet");setupCards();readLibrary();restoreMemory();render("exact");render("based");
+  if(window.__SWATCH_COLORS_TEST__)window.__swatchColorsInternals={paletteFromSamples:paletteFromSamples};
 }());
