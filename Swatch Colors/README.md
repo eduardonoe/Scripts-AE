@@ -21,13 +21,31 @@ The source is always the composition currently open in the active Composition Vi
 - Named palettes can be stored without a time limit in **Saved palettes**.
 - Local data remains available until the CEP extension storage is manually cleared or the extension profile is removed.
 
-## Test installation
+## Installation on Windows
 
-1. Copy this folder to the user CEP extensions directory and rename it `Swatch Colors`.
+The release ZIP includes `Install_Swatch_Colors.bat`, which installs the extension and enables unsigned CEP extensions automatically.
+
+1. Extract the entire `Swatch_Colors_CEP_1.0.1.zip` archive to a folder. Do not run the installer from inside the ZIP.
+2. Keep `Install_Swatch_Colors.bat` beside the extracted `Swatch Colors` folder.
+3. Right-click `Install_Swatch_Colors.bat` and choose **Run as administrator**. The installer also requests elevation automatically when needed.
+4. Wait for the installation-complete message, then restart After Effects.
+5. Open **Window > Extensions (Legacy) > Swatch Colors**.
+
+The installer removes the previous `Swatch Colors` extension folder before copying the new files to:
+
+`C:\Program Files\Common Files\Adobe\CEP\extensions\Swatch Colors`
+
+Running the installer again updates the panel without deleting the active palette, recent history, or saved palettes. These are stored separately in the CEP profile.
+
+For complete instructions in Portuguese and English, see `INSTALACAO_INSTALLATION.txt` inside the package.
+
+## Manual or development installation
+
+1. Copy the extension folder to a CEP extensions directory and name it `Swatch Colors`.
 2. Enable CEP debug mode for the installed CSXS version.
 3. Restart After Effects and open **Window > Extensions (Legacy) > Swatch Colors**.
 
-Declared compatibility: After Effects 2021 or later (CEP/CSXS 11).
+Declared compatibility: After Effects 2021 or later (CEP/CSXS 11). The included automatic installer targets Windows; manual installation is required on other operating systems.
 
 ## Interface
 
