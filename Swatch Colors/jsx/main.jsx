@@ -1,12 +1,13 @@
 /*
     Swatch Colors — host bridge for After Effects (ExtendScript / ES3).
-    Version: 1.0.0
+    Version: 1.0.1
 
-    v1.0.0 changelog:
-    - Initial CEP release with exact and derived palettes.
-    - Adds persistent palettes, recent history, six skins, Fill/Tint actions, HEX copy, and color details.
+    v1.0.1 changelog:
+    - Expands exact-color discovery and improves nested-composition coverage.
+    - Preserves saturated sampled colors with denser, alpha-aware frame analysis.
 */
 var SwatchColors = SwatchColors || {};
+SwatchColors.MAX_EXACT_COLORS = 64;
 
 SwatchColors.escapeJSON = function (value) {
     return String(value).replace(/\\/g, "\\\\").replace(/\"/g, "\\\"").replace(/\r/g, "\\r").replace(/\n/g, "\\n");
@@ -24,7 +25,7 @@ SwatchColors.colorKey = function (c) {
 };
 
 SwatchColors.pushColor = function (list, seen, color, source, layerName) {
-    if (!color || color.length < 3 || list.length >= 20) return;
+    if (!color || color.length < 3 || list.length >= SwatchColors.MAX_EXACT_COLORS) return;
     var c = [Math.max(0, Math.min(1, Number(color[0]))), Math.max(0, Math.min(1, Number(color[1]))), Math.max(0, Math.min(1, Number(color[2])))];
     var key = SwatchColors.colorKey(c);
     if (seen[key]) return;
@@ -53,10 +54,10 @@ SwatchColors.exactColorLabel = function (prop) {
 };
 
 SwatchColors.walkProperties = function (group, time, list, seen, layerName, depth) {
-    if (!group || depth > 12 || list.length >= 20) return;
+    if (!group || depth > 12 || list.length >= SwatchColors.MAX_EXACT_COLORS) return;
     var count = 0;
     try { count = group.numProperties || 0; } catch (ignore) {}
-    for (var i = 1; i <= count && list.length < 20; i++) {
+    for (var i = 1; i <= count && list.length < SwatchColors.MAX_EXACT_COLORS; i++) {
         var prop;
         try { prop = group.property(i); } catch (ignoreProp) { continue; }
         if (!prop) continue;
@@ -72,11 +73,11 @@ SwatchColors.walkProperties = function (group, time, list, seen, layerName, dept
 };
 
 SwatchColors.scanCompColors = function (comp, time, list, seen, visited, depth) {
-    if (!comp || depth > 6 || list.length >= 20) return;
+    if (!comp || depth > 6 || list.length >= SwatchColors.MAX_EXACT_COLORS) return;
     var visitKey = String(comp.id || comp.name);
     if (visited[visitKey]) return;
     visited[visitKey] = true;
-    for (var i = 1; i <= comp.numLayers && list.length < 20; i++) {
+    for (var i = 1; i <= comp.numLayers && list.length < SwatchColors.MAX_EXACT_COLORS; i++) {
         var layer = comp.layer(i), isActive = true;
         try { isActive = layer.activeAtTime(time); } catch (ignoreActive) {}
         if (!layer.enabled || !isActive || layer.guideLayer) continue;
@@ -100,6 +101,7 @@ SwatchColors.scanCompColors = function (comp, time, list, seen, visited, depth) 
             }
         } catch (ignoreNested) {}
     }
+    visited[visitKey] = false;
 };
 
 SwatchColors.scanExact = function () {
@@ -140,10 +142,10 @@ SwatchColors.sampleBatch = function (start, count, cols, rows) {
         sampler.shy = true;
         sampler.selected = false;
         var sourceTextProp = sampler.property("ADBE Text Properties").property("ADBE Text Document");
-        var radiusX = Math.max(2, comp.width / cols / 4), radiusY = Math.max(2, comp.height / rows / 4);
-        sourceTextProp.expression = "var pts=[" + pointLiterals.join(",") + "],r=[],o,c,a,L,p;for(var j=0;j<pts.length;j++){o=[0,0,0,0];for(var n=thisComp.numLayers;n>=1;n--){L=thisComp.layer(n);if(L.index!=thisLayer.index&&L.hasVideo&&L.active){try{p=L.fromComp([pts[j][0],pts[j][1],0]);c=L.sampleImage(p,[" + radiusX + "," + radiusY + "],true,time);a=c[3];o=[c[0]*a+o[0]*(1-a),c[1]*a+o[1]*(1-a),c[2]*a+o[2]*(1-a),a+o[3]*(1-a)];}catch(e){}}}r.push(o[0]);r.push(o[1]);r.push(o[2]);}r.join(',');";
+        var sampleRadius = 2;
+        sourceTextProp.expression = "var pts=[" + pointLiterals.join(",") + "],r=[],o,c,a,L,p;for(var j=0;j<pts.length;j++){o=[0,0,0,0];for(var n=thisComp.numLayers;n>=1;n--){L=thisComp.layer(n);if(L.index!=thisLayer.index&&L.hasVideo&&L.active){try{p=L.fromComp([pts[j][0],pts[j][1],0]);c=L.sampleImage(p,[" + sampleRadius + "," + sampleRadius + "],true,time);a=c[3];o=[c[0]*a+o[0]*(1-a),c[1]*a+o[1]*(1-a),c[2]*a+o[2]*(1-a),a+o[3]*(1-a)];}catch(e){}}}if(o[3]>.001){r.push(o[0]/o[3]);r.push(o[1]/o[3]);r.push(o[2]/o[3]);r.push(o[3]);}else{r.push(0);r.push(0);r.push(0);r.push(0);}}r.join(',');";
         var sampleDocument = sourceTextProp.valueAtTime(t, false), rawSamples = String(sampleDocument.text).split(","), jsonSamples = [];
-        for (var rs = 0; rs + 2 < rawSamples.length; rs += 3) jsonSamples.push("[" + Number(rawSamples[rs]) + "," + Number(rawSamples[rs + 1]) + "," + Number(rawSamples[rs + 2]) + "]");
+        for (var rs = 0; rs + 3 < rawSamples.length; rs += 4) jsonSamples.push("[" + Number(rawSamples[rs]) + "," + Number(rawSamples[rs + 1]) + "," + Number(rawSamples[rs + 2]) + "," + Number(rawSamples[rs + 3]) + "]");
         sourceTextProp.expression = "";
         try { sampler.remove(); } catch (ignoreRemove) {}
         sampler = null;

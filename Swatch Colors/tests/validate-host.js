@@ -66,6 +66,11 @@ Object.keys(accepted).forEach(function (matchName) {
   if (host.exactColorLabel({ matchName: matchName })) throw new Error("Non-solid property was promoted to Exact: " + matchName);
 });
 
+const manyColors = [];
+const seenColors = {};
+for (let i = 0; i < 48; i++) host.pushColor(manyColors, seenColors, [i / 255, 0, 0], "Solid", "Layer " + i);
+if (manyColors.length !== 48) throw new Error("Exact colors were truncated before the 64-color limit");
+
 function apply(hex, mode) {
   const result = JSON.parse(host.applyEffectColor(hex, mode));
   if (!result.ok || result.changed !== 1) throw new Error("Effect application failed: " + mode);
@@ -79,4 +84,4 @@ apply("#FFC400", "tint");
 if (effectsList.filter(function (effect) { return effect.matchName === "ADBE Tint"; }).length !== 1) throw new Error("Tint effect was duplicated");
 if (Math.abs(colorValues["ADBE Tint"][0] - 1) > .0001 || Math.abs(colorValues["ADBE Tint"][1] - (196 / 255)) > .0001) throw new Error("Tint Map White To received the wrong color");
 
-console.log(JSON.stringify({ ok: true, exactWhitelist: Object.keys(accepted).length, effects: effectsList.map(function (effect) { return effect.matchName; }) }));
+console.log(JSON.stringify({ ok: true, exactWhitelist: Object.keys(accepted).length, exactCapacity: manyColors.length, effects: effectsList.map(function (effect) { return effect.matchName; }) }));

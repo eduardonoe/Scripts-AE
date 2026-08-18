@@ -5,9 +5,9 @@ The panel reads the active composition in two ways:
 - **Exact colors:** RGB values from true solid sources only: solid layers, shape fills and strokes, text fills and strokes, and the Fill effect. Gradient stops, arbitrary effect controls, photos, and videos are not promoted to this section.
 - **Derived palette:** dominant colors extracted from the current rendered frame, useful for photos, videos, and gradients.
 
-The derived palette is sampled directly from visible layers at the current composition time through After Effects' `sampleImage()` expression engine. The panel never opens, changes, or uses the Render Queue and does not depend on output-module templates.
+The derived palette samples 240 small areas directly from visible layers at the current composition time through After Effects' `sampleImage()` expression engine. Transparent points are ignored, and dominant clusters use representative sampled colors instead of averaged RGB colors so saturated details are not washed into pastels. The panel never opens, changes, or uses the Render Queue and does not depend on output-module templates.
 
-The panel displays up to 20 swatches in total. **Click** a color to apply or update a **Fill** effect on every selected layer. **Shift + click** applies or updates a **Tint** effect and sends the swatch to **Map White To**. **Right-click** copies the HEX code, including `#`, to the clipboard. **Shift + right-click** opens the color information popover with its HEX value and source.
+The panel displays up to 64 unique exact colors plus 12 dominant colors from the rendered frame. **Click** a color to apply or update a **Fill** effect on every selected layer. **Shift + click** applies or updates a **Tint** effect and sends the swatch to **Map White To**. **Right-click** copies the HEX code, including `#`, to the clipboard. **Shift + right-click** opens the color information popover with its HEX value and source.
 
 Analysis is always manual. The panel does not watch or recalculate the composition in the background. It only starts when **Read composition** is clicked.
 
