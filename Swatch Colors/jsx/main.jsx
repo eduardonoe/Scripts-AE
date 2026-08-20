@@ -156,6 +156,40 @@ SwatchColors.sampleBatch = function (start, count, cols, rows) {
     }
 };
 
+SwatchColors.pickColor = function () {
+    var comp = null, helper = null, selected = [];
+    try {
+        comp = SwatchColors.getWorkingComp();
+        if (!comp) return SwatchColors.result(false, null, "Activate a Composition Viewer, then try again.");
+        selected = comp.selectedLayers;
+        for (var i = 0; i < selected.length; i++) selected[i].selected = false;
+        helper = comp.layers.addNull(comp.duration);
+        helper.name = "Swatch Color Picker";
+        helper.enabled = false;
+        helper.selected = true;
+        var effect = helper.property("ADBE Effect Parade").addProperty("ADBE Color Control");
+        var property = effect.property("ADBE Color Control-0001");
+        property.selected = true;
+        var command = app.findMenuCommandId("Edit Value...");
+        if (!command) command = 2240;
+        app.executeCommand(command);
+        var color = property.value;
+        var hex = "#";
+        for (var c = 0; c < 3; c++) {
+            var part = Math.max(0, Math.min(255, Math.round(color[c] * 255))).toString(16).toUpperCase();
+            hex += part.length < 2 ? "0" + part : part;
+        }
+        helper.remove();
+        helper = null;
+        for (i = 0; i < selected.length; i++) selected[i].selected = true;
+        return SwatchColors.result(true, "\"hex\":\"" + hex + "\"");
+    } catch (err) {
+        try { if (helper) helper.remove(); } catch (ignoreHelper) {}
+        try { for (var s = 0; s < selected.length; s++) selected[s].selected = true; } catch (ignoreSelection) {}
+        return SwatchColors.result(false, null, err.toString());
+    }
+};
+
 SwatchColors.applyEffectColor = function (hex, mode) {
     try {
         var comp = SwatchColors.getWorkingComp();
@@ -164,11 +198,22 @@ SwatchColors.applyEffectColor = function (hex, mode) {
         if (!/^[0-9a-fA-F]{6}$/.test(clean)) return SwatchColors.result(false, null, "Invalid color.");
         var color = [parseInt(clean.substr(0,2),16)/255, parseInt(clean.substr(2,2),16)/255, parseInt(clean.substr(4,2),16)/255];
         mode = String(mode).toLowerCase() === "tint" ? "tint" : "fill";
-        var layers = comp.selectedLayers, changed = 0;
-        if (!layers || !layers.length) return SwatchColors.result(false, null, "Select at least one layer first.");
+        var layers = comp.selectedLayers, changed = 0, created = false;
+        if (!layers || !layers.length) {
+            var label = mode === "tint" ? "Tint" : "Fill";
+            app.beginUndoGroup("Create Swatch " + label + " Adjustment Layer");
+            var adjustment = comp.layers.addSolid([1,1,1], "Swatch " + label + " " + hex.toUpperCase(), comp.width, comp.height, comp.pixelAspect, comp.duration);
+            adjustment.adjustmentLayer = true;
+            adjustment.startTime = 0;
+            adjustment.inPoint = 0;
+            adjustment.outPoint = comp.duration;
+            layers = [adjustment];
+            created = true;
+        } else {
+            app.beginUndoGroup(mode === "tint" ? "Apply Swatch Tint" : "Apply Swatch Fill");
+        }
         var effectMatch = mode === "tint" ? "ADBE Tint" : "ADBE Fill";
         var colorMatch = mode === "tint" ? "ADBE Tint-0002" : "ADBE Fill-0002";
-        app.beginUndoGroup(mode === "tint" ? "Apply Swatch Tint" : "Apply Swatch Fill");
         for (var i = 0; i < layers.length; i++) {
             try {
                 var effects = layers[i].property("ADBE Effect Parade");
@@ -186,7 +231,7 @@ SwatchColors.applyEffectColor = function (hex, mode) {
         }
         app.endUndoGroup();
         if (!changed) return SwatchColors.result(false, null, "The selected layer does not support this effect.");
-        return SwatchColors.result(true, "\"changed\":" + changed);
+        return SwatchColors.result(true, "\"changed\":" + changed + ",\"created\":" + (created ? "true" : "false"));
     } catch (err) {
         try { app.endUndoGroup(); } catch (ignoreUndo) {}
         return SwatchColors.result(false, null, err.toString());

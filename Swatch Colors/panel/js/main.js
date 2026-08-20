@@ -3,7 +3,7 @@
   var state = { exact: [], based: [], current: null, variation: 0, dragging: null, compName: "", compTime: 0, activeName: "", saved: [], history: [] };
   var $ = function (s) { return document.querySelector(s); };
   var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
-  var els = { cards: $("#cards"), scan: $("#scanBtn"), progress: $("#progress"), status: $("#status"), comp: $("#compName"), frameName: $("#currentFrameName"), hint: $("#captureHint"), exact: $("#exactGrid"), based: $("#basedGrid"), exactEmpty: $("#exactEmpty"), basedEmpty: $("#basedEmpty"), exactCount: $("#exactCount"), basedCount: $("#basedCount"), pop: $("#popover"), popColor: $("#popoverColor"), popHex: $("#popoverHex"), popSource: $("#popoverSource"), toast: $("#toast"), canvas: $("#sampleCanvas"), name: $("#paletteName"), save: $("#savePaletteBtn"), savedList: $("#savedList"), libraryEmpty: $("#libraryEmpty"), savedBadge: $("#savedBadge"), historyPanel: $("#historyPanel"), historyList: $("#historyList"), historyCount: $("#historyCount"), historyEmpty: $("#historyEmpty"), settings: $("#settingsMenu"), settingsBtn: $("#settingsBtn") };
+  var els = { cards: $("#cards"), scan: $("#scanBtn"), progress: $("#progress"), status: $("#status"), comp: $("#compName"), frameName: $("#currentFrameName"), hint: $("#captureHint"), exact: $("#exactGrid"), based: $("#basedGrid"), exactEmpty: $("#exactEmpty"), basedEmpty: $("#basedEmpty"), exactCount: $("#exactCount"), basedCount: $("#basedCount"), addExact: $("#addExactColor"), addBased: $("#addBasedColor"), pop: $("#popover"), popColor: $("#popoverColor"), popHex: $("#popoverHex"), popSource: $("#popoverSource"), toast: $("#toast"), name: $("#paletteName"), save: $("#savePaletteBtn"), savedList: $("#savedList"), libraryEmpty: $("#libraryEmpty"), savedBadge: $("#savedBadge"), historyPanel: $("#historyPanel"), historyList: $("#historyList"), historyCount: $("#historyCount"), historyEmpty: $("#historyEmpty"), settings: $("#settingsMenu"), settingsBtn: $("#settingsBtn") };
   var hostSource = null;
 
   function extensionPath() {
@@ -76,10 +76,25 @@
     try { document.execCommand("copy"); toast(hex + " copied"); } catch(e) { toast(hex); }
     document.body.removeChild(input);
   }
+  function addManualColor(type,hex) {
+    var clean=String(hex||"").replace("#","");
+    if(!/^[0-9a-fA-F]{6}$/.test(clean)){toast("Invalid color");return;}
+    var rgb=[parseInt(clean.substr(0,2),16),parseInt(clean.substr(2,2),16),parseInt(clean.substr(4,2),16)];
+    if(state[type].some(function(item){return distance(item.rgb,rgb)<1;})){toast("Color already in palette");return;}
+    state[type].push({rgb:rgb,source:type==="exact"?"Manually added exact color":"Manually added derived color"});
+    render(type);persistActive();els.save.disabled=false;toast("Color added");
+  }
+  function pickColor(type) {
+    setStatus("Choose a color with the After Effects picker…", "busy");
+    evalHost("SwatchColors.pickColor()").then(function(result){
+      addManualColor(type,result.hex);
+      setStatus("Color added to " + (type==="exact"?"Exact Colors":"Derived Palette"));
+    }).catch(function(error){setStatus(error.message,"error");toast(error.message);});
+  }
   function applyEffect(hex,mode) {
     var label=mode==="tint"?"Tint":"Fill";
     setStatus("Applying " + label + " " + hex + "…", "busy");
-    evalHost("SwatchColors.applyEffectColor('" + escHost(hex) + "','" + mode + "')").then(function(r){ setStatus(label+" applied to "+r.changed+" layer(s)"); toast(label+" · "+hex); }).catch(function(e){ setStatus(e.message, "error"); toast(e.message); });
+    evalHost("SwatchColors.applyEffectColor('" + escHost(hex) + "','" + mode + "')").then(function(r){ var message=r.created?label+" added on a new adjustment layer":label+" applied to "+r.changed+" layer(s)";setStatus(message);toast(label+" · "+hex); }).catch(function(e){ setStatus(e.message, "error"); toast(e.message); });
   }
   function openPopover(anchor, item, hex) {
     state.current = { item:item, hex:hex }; els.popColor.style.background = hex; els.popHex.textContent = hex; els.popSource.textContent = item.source || "Derived palette"; els.pop.hidden = false;
@@ -247,6 +262,6 @@
     $$("[data-skin-option]").forEach(function(button){button.classList.toggle("active",button.getAttribute("data-skin-option")===skin);});
   }
 
-  els.scan.addEventListener("click",scan);els.save.addEventListener("click",savePalette);els.name.addEventListener("keydown",function(e){if(e.keyCode===13&&!els.save.disabled)savePalette();});$$(".view-tab").forEach(function(tab){tab.addEventListener("click",function(){switchView(tab.dataset.view);});});$("#variationBtn").addEventListener("click",variations);$("#variationMode").addEventListener("click",variations);$("#copyBtn").addEventListener("click",function(){if(state.current)copy(state.current.hex);});$("#applyBtn").addEventListener("click",function(){if(state.current)applyEffect(state.current.hex,"fill");});els.settingsBtn.addEventListener("click",function(e){e.stopPropagation();els.settings.hidden=!els.settings.hidden;});$$("[data-ui-size]").forEach(function(button){button.addEventListener("click",function(){setUiSize(button.getAttribute("data-ui-size"));});});$$("[data-skin-option]").forEach(function(button){button.addEventListener("click",function(){setSkin(button.getAttribute("data-skin-option"));});});document.addEventListener("pointerdown",function(e){if(!els.pop.hidden&&!e.target.closest("#popover")&&!e.target.closest(".swatch"))els.pop.hidden=true;if(!els.settings.hidden&&!e.target.closest("#settingsMenu")&&!e.target.closest("#settingsBtn"))els.settings.hidden=true;});setUiSize(localStorage.getItem("swatchUiSize")||"compact");setSkin(localStorage.getItem("swatchSkin")||"violet");setupCards();readLibrary();restoreMemory();render("exact");render("based");
+  els.scan.addEventListener("click",scan);els.save.addEventListener("click",savePalette);els.addExact.addEventListener("click",function(){pickColor("exact");});els.addBased.addEventListener("click",function(){pickColor("based");});els.name.addEventListener("keydown",function(e){if(e.keyCode===13&&!els.save.disabled)savePalette();});$$(".view-tab").forEach(function(tab){tab.addEventListener("click",function(){switchView(tab.dataset.view);});});$("#variationBtn").addEventListener("click",variations);$("#variationMode").addEventListener("click",variations);$("#copyBtn").addEventListener("click",function(){if(state.current)copy(state.current.hex);});$("#applyBtn").addEventListener("click",function(){if(state.current)applyEffect(state.current.hex,"fill");});els.settingsBtn.addEventListener("click",function(e){e.stopPropagation();els.settings.hidden=!els.settings.hidden;});$$("[data-ui-size]").forEach(function(button){button.addEventListener("click",function(){setUiSize(button.getAttribute("data-ui-size"));});});$$("[data-skin-option]").forEach(function(button){button.addEventListener("click",function(){setSkin(button.getAttribute("data-skin-option"));});});document.addEventListener("pointerdown",function(e){if(!els.pop.hidden&&!e.target.closest("#popover")&&!e.target.closest(".swatch"))els.pop.hidden=true;if(!els.settings.hidden&&!e.target.closest("#settingsMenu")&&!e.target.closest("#settingsBtn"))els.settings.hidden=true;});setUiSize(localStorage.getItem("swatchUiSize")||"compact");setSkin(localStorage.getItem("swatchSkin")||"violet");setupCards();readLibrary();restoreMemory();render("exact");render("based");
   if(window.__SWATCH_COLORS_TEST__)window.__swatchColorsInternals={paletteFromSamples:paletteFromSamples};
 }());

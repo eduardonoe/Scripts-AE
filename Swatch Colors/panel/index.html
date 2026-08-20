@@ -75,6 +75,7 @@
             <small class="section-note">Solid sources only</small>
             <div class="swatch-grid" id="exactGrid"></div>
             <div class="empty" id="exactEmpty"><span class="empty-glyph">◇</span><p>Solid layers, shape fills, strokes, text, and Fill effects appear here.</p></div>
+            <div class="palette-add"><button type="button" id="addExactColor" title="Pick a color with the After Effects color picker"><span>＋</span> ADD COLOR</button></div>
             </div>
           </div>
         </section>
@@ -91,6 +92,7 @@
             <small class="section-note">Photo, video, and gradients</small>
             <div class="swatch-grid" id="basedGrid"></div>
             <div class="empty" id="basedEmpty"><span class="empty-glyph">✦</span><p>Photos, videos, and gradients become a cohesive scene palette.</p></div>
+            <div class="palette-add"><button type="button" id="addBasedColor" title="Pick a color with the After Effects color picker"><span>＋</span> ADD COLOR</button></div>
             <div class="variation-bar">
               <div><b>Variations</b><small id="variationLabel">Balanced</small></div>
               <div class="variation-actions">
@@ -143,7 +145,6 @@
     <button id="copyBtn">Copy</button><button id="applyBtn">Apply Fill</button>
   </div>
   <div class="toast" id="toast"></div>
-  <canvas id="sampleCanvas" width="160" height="90" hidden></canvas>
   <script src="js/main.js"></script>
 </body>
 </html>

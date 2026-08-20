@@ -24,6 +24,7 @@ const { chromium } = require("playwright");
     window.__adobe_cep__ = {
       getSystemPath: function () { return "C:/mock/Swatch Colors"; },
       evalScript: function (source, callback) {
+        if (source.indexOf("pickColor()") > -1) { callback('{"ok":true,"hex":"#123456"}'); return; }
         var mode = source.indexOf("'tint'") > -1 ? "tint" : (source.indexOf("'fill'") > -1 ? "fill" : "other");
         window.__hostCalls.push(mode);
         callback('{"ok":true,"changed":1}');
@@ -60,6 +61,11 @@ const { chromium } = require("playwright");
   if (paletteCheck.count !== 4 || !paletteCheck.allFromFrame) throw new Error("Derived palette invented averaged colors not present in the frame");
   const historyItems = await page.locator("#historyList .history-item").count();
   if (historyItems !== 2) throw new Error("History was not limited to two previous palettes");
+
+  await page.click("#addExactColor");
+  await page.click("#addBasedColor");
+  if (await page.locator("#exactGrid .swatch").count() !== 3) throw new Error("Manual exact color was not added");
+  if (await page.locator("#basedGrid .swatch").count() !== 3) throw new Error("Manual derived color was not added");
 
   const skins = ["violet", "midnight-indigo", "graphite", "minimal-flat", "adobe-native", "cyber-slate"];
   await page.click("#settingsBtn");
@@ -108,7 +114,7 @@ const { chromium } = require("playwright");
   if (errors.length) throw new Error("Browser errors: " + errors.join(" | "));
 
   await page.screenshot({ path: path.resolve(__dirname, "panel-smoke.png"), fullPage: true });
-  console.log(JSON.stringify({ ok: true, skins: skins.length, modules: cards.length, history: historyItems, gestures: calls, copiedHex: copiedHex, shiftRightClickDetails: popoverVisible, swatchBorder: swatchBorder }));
+  console.log(JSON.stringify({ ok: true, skins: skins.length, modules: cards.length, history: historyItems, manualColors: 2, gestures: calls, copiedHex: copiedHex, shiftRightClickDetails: popoverVisible, swatchBorder: swatchBorder }));
   await browser.close();
 })().catch(function (error) {
   console.error(error.stack || error.message);

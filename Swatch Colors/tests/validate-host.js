@@ -35,6 +35,17 @@ const layer = {
 };
 const comp = new CompItem();
 comp.selectedLayers = [layer];
+comp.width = 1920;
+comp.height = 1080;
+comp.pixelAspect = 1;
+comp.duration = 10;
+let createdAdjustment = null;
+comp.layers = {
+  addSolid: function () {
+    createdAdjustment = { adjustmentLayer: false, property: layer.property };
+    return createdAdjustment;
+  }
+};
 
 const context = {
   CompItem: CompItem,
@@ -83,5 +94,12 @@ apply("#FFFFFF", "tint");
 apply("#FFC400", "tint");
 if (effectsList.filter(function (effect) { return effect.matchName === "ADBE Tint"; }).length !== 1) throw new Error("Tint effect was duplicated");
 if (Math.abs(colorValues["ADBE Tint"][0] - 1) > .0001 || Math.abs(colorValues["ADBE Tint"][1] - (196 / 255)) > .0001) throw new Error("Tint Map White To received the wrong color");
+
+comp.selectedLayers = [];
+const adjustmentResult = JSON.parse(host.applyEffectColor("#336699", "fill"));
+if (!adjustmentResult.ok || !adjustmentResult.created || !createdAdjustment || !createdAdjustment.adjustmentLayer) throw new Error("Fill did not create an adjustment layer when no layer was selected");
+createdAdjustment = null;
+const tintAdjustmentResult = JSON.parse(host.applyEffectColor("#CC8844", "tint"));
+if (!tintAdjustmentResult.ok || !tintAdjustmentResult.created || !createdAdjustment || !createdAdjustment.adjustmentLayer) throw new Error("Tint did not create an adjustment layer when no layer was selected");
 
 console.log(JSON.stringify({ ok: true, exactWhitelist: Object.keys(accepted).length, exactCapacity: manyColors.length, effects: effectsList.map(function (effect) { return effect.matchName; }) }));
