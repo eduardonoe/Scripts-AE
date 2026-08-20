@@ -1,26 +1,27 @@
 /*
     LIMPAR EFEITOS E EXPRESSÕES
     After Effects JSX
-    Version: 1.0.0
+    Version: 1.0.1
 
     Remove todos os efeitos e todas as expressões das camadas selecionadas,
-    de uma só vez, silenciosamente (sem alertas de progresso).
+    de uma só vez, 100% silencioso (sem nenhuma janela/alerta).
 
     Selecione os layers e execute o script.
+
+    Changelog:
+    - 1.0.1: removido alerta final e alertas de validação (execução silenciosa).
 */
 (function limparFxExpressoes() {
     app.beginUndoGroup("Limpar Efeitos e Expressões");
 
     var comp = app.project.activeItem;
     if (!(comp instanceof CompItem)) {
-        alert("Abra uma composição e selecione os layers.");
         app.endUndoGroup();
         return;
     }
 
     var layers = comp.selectedLayers;
     if (layers.length === 0) {
-        alert("Selecione as camadas que deseja limpar.");
         app.endUndoGroup();
         return;
     }
@@ -69,11 +70,4 @@
     }
 
     app.endUndoGroup();
-
-    alert(
-        "Limpeza concluída!\n\n" +
-        "Camadas processadas: " + layers.length + "\n" +
-        "Expressões removidas: " + expressionsRemoved + "\n" +
-        "Efeitos removidos: " + effectsRemoved
-    );
 })();
