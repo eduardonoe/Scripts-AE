@@ -6,19 +6,30 @@
     versao. Ao alterar um dos dois, subir a versao nos dois.
 
     v1.0.3 changelog:
+    - Corrige uso de Date.prototype.toISOString, inexistente no ExtendScript (ES3),
+      que abortava a releitura da composicao, o salvamento de paletas e a memoria
+      de paletas anteriores.
     - Faz a copia do HEX chegar de fato a area de transferencia. No processo
       do After Effects, chamar o powershell direto nao executa e o clip.exe
       nao e encontrado no PATH; a unica rota que funciona e o cmd lancando o
       powershell, que e a usada agora.
-
-    v1.0.2 changelog:
-    - Corrige uso de Date.prototype.toISOString, inexistente no ExtendScript (ES3),
-      que abortava a releitura da composicao, o salvamento de paletas e a memoria
-      de paletas anteriores.
-    - Corrige a deteccao de plataforma da copia para a area de transferencia
-      (Folder.fs em vez de $.os) e remove o pipeline de shell que travava o painel.
     - Ignora as camadas de ajuste "Swatch Fill/Tint" criadas pelo proprio painel
       durante a leitura, evitando acumulo de cores a cada releitura.
+    - Carrega as paletas da memoria com o botao esquerdo do mouse.
+    - Melhora a precisao em areas de cor chapada. O sampleImage usava raio 2,
+      que faz a media de uma caixa de 25 pixels e sujava qualquer amostra perto
+      de uma borda; agora usa raio 0.5 (um pixel). Alem disso, a cor de cada
+      grupo passa a ser o valor exato mais repetido, e nao a media do grupo:
+      com o ruido tipico de video comprimido a media devolvia #FEBF01 no lugar
+      de #FFBF00. Cores vindas de areas chapadas aparecem como "Flat area color".
+    - Cores de areas chapadas do frame passam a entrar em "Exact colors", e nao
+      mais na paleta derivada: um titulo branco ou uma palavra em ambar num frame
+      de video sao tao exatos quanto um Solid, mesmo sem existir como propriedade
+      de camada. O criterio e a dominancia da cor dentro do proprio grupo, nao a
+      contagem de amostras: assim um elemento pequeno, atingido por poucas
+      amostras mas todas iguais, e reconhecido, enquanto o banding de um degrade
+      nao vaza para as cores exatas. A grade de amostragem foi de 20x12 para
+      28x16 para que elementos finos sejam atingidos mais de uma vez.
 
     Standalone counterpart to the "Swatch Colors" CEP extension: reads exact and
     derived palette colors from the active composition, lets you add colors
@@ -31,6 +42,10 @@
 
 (function (thisObj) {
     var APP_NAME = "Swatch Colors";
+    // Unica fonte da versao dentro deste arquivo: usada no titulo da janela
+    // e no rotulo visivel do painel. Manter igual ao cabecalho acima e a
+    // versao da extensao CEP.
+    var VERSION = "1.0.3";
     var MAX_EXACT_COLORS = 64;
     var GRID_COLUMNS = 8;
     var SWATCH_SIZE = 22;
@@ -277,7 +292,10 @@
             var sourceTextProp = sampler.property("ADBE Text Properties").property("ADBE Text Document");
             var pointLiterals = [];
             for (index = 0; index < points.length; index++) pointLiterals.push("[" + points[index][0] + "," + points[index][1] + "]");
-            var sampleRadius = 2;
+            // 0.5 = um unico pixel. sampleImage faz a MEDIA de uma caixa de
+            // +-raio, entao raio 2 misturava 25 pixels e sujava toda amostra
+            // perto de uma borda, impedindo que cores chapadas saissem puras.
+            var sampleRadius = 0.5;
             sourceTextProp.expression = "var pts=[" + pointLiterals.join(",") + "],r=[],o,c,a,L,p;for(var j=0;j<pts.length;j++){o=[0,0,0,0];for(var n=thisComp.numLayers;n>=1;n--){L=thisComp.layer(n);if(L.index!=thisLayer.index&&L.hasVideo&&L.active){try{p=L.fromComp([pts[j][0],pts[j][1],0]);c=L.sampleImage(p,[" + sampleRadius + "," + sampleRadius + "],true,time);a=c[3];o=[c[0]*a+o[0]*(1-a),c[1]*a+o[1]*(1-a),c[2]*a+o[2]*(1-a),a+o[3]*(1-a)];}catch(e){}}}if(o[3]>.001){r.push(o[0]/o[3]);r.push(o[1]/o[3]);r.push(o[2]/o[3]);r.push(o[3]);}else{r.push(0);r.push(0);r.push(0);r.push(0);}}r.join(',');";
             var sampleDocument = sourceTextProp.valueAtTime(t, false);
             var rawSamples = String(sampleDocument.text).split(",");
@@ -303,8 +321,13 @@
             var rgb = [clamp255(samples[i][0] * 255), clamp255(samples[i][1] * 255), clamp255(samples[i][2] * 255)];
             var key = Math.floor(rgb[0] / 12) + "," + Math.floor(rgb[1] / 12) + "," + Math.floor(rgb[2] / 12);
             var bin = bins[key];
-            if (!bin) bin = bins[key] = { rgb: [0, 0, 0], weight: 0 };
+            if (!bin) bin = bins[key] = { rgb: [0, 0, 0], weight: 0, counts: {} };
             bin.rgb[0] += rgb[0]; bin.rgb[1] += rgb[1]; bin.rgb[2] += rgb[2]; bin.weight++;
+            // Guarda quantas vezes cada valor exato apareceu. Uma area
+            // chapada repete o mesmo valor varias vezes, e e isso que
+            // permite recuperar a cor solida real la embaixo.
+            var exactKey = rgb[0] + "," + rgb[1] + "," + rgb[2];
+            bin.counts[exactKey] = (bin.counts[exactKey] || 0) + 1;
         }
         for (var key2 in bins) {
             if (!bins.hasOwnProperty(key2)) continue;
@@ -345,12 +368,48 @@
         for (i = 0; i < clusters.length; i++) {
             var cluster = clusters[i];
             if (!cluster.weight) continue;
-            var representative = null, bestScore = Infinity;
+            // Preferir o valor de pixel exato que mais se repetiu no cluster.
+            // Antes o representante era a media de um bin, entao uma area
+            // 100% chapada nunca saia com o valor real (ex.: #FFFFFF virava
+            // um quase-branco). Areas chapadas repetem o mesmo valor, entao a
+            // moda recupera a cor solida exata.
+            var merged = {}, dominantKey = null, dominantHits = 0;
             for (var m = 0; m < cluster.members.length; m++) {
-                var mem = cluster.members[m], saturation = rgbToHsl(mem.rgb)[1], score = distanceSquared(mem.rgb, cluster.center) / (1 + saturation * 0.45);
-                if (score < bestScore) { bestScore = score; representative = mem.rgb; }
+                var counts = cluster.members[m].counts;
+                for (var ck in counts) {
+                    if (!counts.hasOwnProperty(ck)) continue;
+                    merged[ck] = (merged[ck] || 0) + counts[ck];
+                    if (merged[ck] > dominantHits) { dominantHits = merged[ck]; dominantKey = ck; }
+                }
             }
-            results.push({ rgb: representative.slice(), source: "Dominant sampled color", weight: cluster.weight });
+            var representative = null;
+            if (dominantKey) {
+                var parts = dominantKey.split(",");
+                representative = [Number(parts[0]), Number(parts[1]), Number(parts[2])];
+            } else {
+                var bestScore = Infinity;
+                for (var m2 = 0; m2 < cluster.members.length; m2++) {
+                    var mem = cluster.members[m2], saturation = rgbToHsl(mem.rgb)[1], score = distanceSquared(mem.rgb, cluster.center) / (1 + saturation * 0.45);
+                    if (score < bestScore) { bestScore = score; representative = mem.rgb.slice(); }
+                }
+            }
+            // Um valor que se repete muito veio de uma area chapada, nao de
+            // um degrade ou de uma foto: vale dizer isso na origem da cor.
+            // O que separa uma area chapada de um degrade nao e quantas vezes
+            // a cor apareceu, e sim o quanto ela domina o proprio grupo. Uma
+            // palavra fina em cor solida gera poucas amostras, mas quase todas
+            // com o mesmo valor; um degrade espalha o grupo entre muitos
+            // valores diferentes. Contagem absoluta reprovava areas pequenas.
+            var share = cluster.weight ? (dominantHits / cluster.weight) : 0;
+            var flat = dominantHits >= 2 && share >= 0.4;
+            results.push({
+                rgb: representative.slice(),
+                source: flat ? "Flat area color" : "Dominant sampled color",
+                weight: cluster.weight,
+                hits: dominantHits,
+                share: share,
+                flat: flat
+            });
         }
         results.sort(function (a, b) { return b.weight - a.weight; });
         var filtered = [];
@@ -459,7 +518,7 @@
     // ---------------------------------------------------------------------
 
     function buildUI(thisObj) {
-        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " 1.0.3", undefined, { resizeable: true });
+        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " " + VERSION, undefined, { resizeable: true });
         win.orientation = "column";
         win.alignChildren = ["fill", "top"];
         win.spacing = 8;
@@ -468,6 +527,20 @@
         var state = { exact: [], based: [], compName: "", activeName: "", variation: 0, saved: loadPalettes(), history: loadPaletteList(historyFile()).slice(0, 2) };
 
         // status
+        // Cabecalho com o nome e a versao. Quando o painel esta encaixado o
+        // titulo da janela nao aparece, entao a versao precisa estar aqui
+        // para o usuario saber o que esta rodando.
+        var headerRow = win.add("group");
+        headerRow.alignment = ["fill", "top"];
+        headerRow.spacing = 4;
+        // "fill" faz o titulo ocupar o espaco restante, empurrando a versao
+        // para a borda direita do painel.
+        var titleText = headerRow.add("statictext", undefined, APP_NAME);
+        titleText.alignment = ["fill", "center"];
+        var versionText = headerRow.add("statictext", undefined, "v" + VERSION);
+        versionText.alignment = ["right", "center"];
+        versionText.helpTip = "Swatch Colors " + VERSION;
+
         var statusText = win.add("statictext", undefined, "Ready to analyze");
         statusText.alignment = ["fill", "top"];
 
@@ -662,15 +735,26 @@
             win.layout.layout(true);
             try {
                 var exact = scanExact(comp);
-                var samples = sampleDerived(comp, 20, 12);
+                // 28x16 em vez de 20x12: elementos finos, como uma palavra em
+                // fonte manuscrita, precisam ser atingidos por pelo menos duas
+                // amostras para serem reconhecidos como area chapada.
+                var samples = sampleDerived(comp, 28, 16);
                 var based = paletteFromSamples(samples, 12);
+                // Uma cor que se repete identica em varias amostras veio de uma
+                // area chapada do frame - uma logo, um texto, um fundo liso. Na
+                // pratica ela e tao "exata" quanto um Solid, mesmo sem existir
+                // como propriedade, entao entra em Exact colors em vez de ficar
+                // entre as cores derivadas.
+                var exactList = exact.slice(0, MAX_EXACT_COLORS);
                 var filteredBased = [];
                 for (var i = 0; i < based.length; i++) {
                     var overlaps = false;
                     for (var j = 0; j < exact.length; j++) if (distance(based[i].rgb, exact[j].rgb) <= 10) { overlaps = true; break; }
-                    if (!overlaps) filteredBased.push(based[i]);
+                    if (overlaps) continue;
+                    if (based[i].flat && exactList.length < MAX_EXACT_COLORS) exactList.push(based[i]);
+                    else filteredBased.push(based[i]);
                 }
-                restoreSnapshot({ name: comp.name, comp: comp.name, exact: exact.slice(0, MAX_EXACT_COLORS), based: filteredBased }, true);
+                restoreSnapshot({ name: comp.name, comp: comp.name, exact: exactList, based: filteredBased }, true);
                 var stamp = new Date();
                 var hh = ("0" + stamp.getHours()).slice(-2), mm = ("0" + stamp.getMinutes()).slice(-2), ss = ("0" + stamp.getSeconds()).slice(-2);
                 setStatus((state.exact.length + state.based.length) + " colors found in \"" + comp.name + "\" at " + hh + ":" + mm + ":" + ss);

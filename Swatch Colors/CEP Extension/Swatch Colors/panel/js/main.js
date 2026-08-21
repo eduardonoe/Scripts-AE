@@ -107,8 +107,12 @@
       if(samples[i].length>3&&samples[i][3]<.05)continue;
       var rgb=[clamp(samples[i][0]*255),clamp(samples[i][1]*255),clamp(samples[i][2]*255)];
       var key=Math.floor(rgb[0]/12)+","+Math.floor(rgb[1]/12)+","+Math.floor(rgb[2]/12),bin=bins[key];
-      if(!bin)bin=bins[key]={rgb:[0,0,0],weight:0};
+      if(!bin)bin=bins[key]={rgb:[0,0,0],weight:0,counts:{}};
       bin.rgb[0]+=rgb[0];bin.rgb[1]+=rgb[1];bin.rgb[2]+=rgb[2];bin.weight++;
+      // Conta cada valor exato: uma area chapada repete o mesmo valor, e e
+      // assim que a cor solida real e recuperada mais abaixo.
+      var exactKey=rgb[0]+","+rgb[1]+","+rgb[2];
+      bin.counts[exactKey]=(bin.counts[exactKey]||0)+1;
     }
     Object.keys(bins).forEach(function(key){var bin=bins[key];bin.rgb=[bin.rgb[0]/bin.weight,bin.rgb[1]/bin.weight,bin.rgb[2]/bin.weight];points.push(bin);});
     if(count<=0||!points.length)return[];
@@ -129,9 +133,22 @@
     var clusters=[];for(i=0;i<count;i++)clusters.push({center:cent[i],weight:0,members:[]});
     points.forEach(function(point,p){clusters[assign[p]].weight+=point.weight;clusters[assign[p]].members.push(point);});
     return clusters.filter(function(cluster){return cluster.weight>0;}).map(function(cluster){
-      var representative=null,bestScore=Infinity;
-      cluster.members.forEach(function(point){var saturation=rgbToHsl(point.rgb)[1],score=distanceSquared(point.rgb,cluster.center)/(1+saturation*.45);if(score<bestScore){bestScore=score;representative=point.rgb;}});
-      return{rgb:representative.slice(),source:"Dominant sampled color · rendered frame",weight:cluster.weight};
+      // Preferir o valor de pixel exato que mais se repetiu no cluster. Antes
+      // o representante era a media de um bin, entao uma area 100% chapada
+      // nunca saia com o valor real (ex.: #FFFFFF virava um quase-branco).
+      // Areas chapadas repetem o mesmo valor, e a moda recupera a cor exata.
+      var merged={},dominantKey=null,dominantHits=0;
+      cluster.members.forEach(function(point){Object.keys(point.counts).forEach(function(ck){merged[ck]=(merged[ck]||0)+point.counts[ck];if(merged[ck]>dominantHits){dominantHits=merged[ck];dominantKey=ck;}});});
+      var representative=null;
+      if(dominantKey){var parts=dominantKey.split(",");representative=[Number(parts[0]),Number(parts[1]),Number(parts[2])];}
+      else{var bestScore=Infinity;cluster.members.forEach(function(point){var saturation=rgbToHsl(point.rgb)[1],score=distanceSquared(point.rgb,cluster.center)/(1+saturation*.45);if(score<bestScore){bestScore=score;representative=point.rgb.slice();}});}
+      // O que separa uma area chapada de um degrade nao e quantas vezes a cor
+      // apareceu, e sim o quanto ela domina o proprio grupo. Uma palavra fina
+      // em cor solida gera poucas amostras, mas quase todas com o mesmo valor;
+      // um degrade espalha o grupo entre muitos valores diferentes.
+      var share=cluster.weight?(dominantHits/cluster.weight):0;
+      var flat=dominantHits>=2&&share>=.4;
+      return{rgb:representative.slice(),source:(flat?"Flat area":"Dominant sampled color")+" · rendered frame",weight:cluster.weight,hits:dominantHits,share:share,flat:flat};
     }).sort(function(a,b){return b.weight-a.weight;}).filter(function(color,index,list){return list.every(function(other,j){return j>=index||distance(color.rgb,other.rgb)>22;});}).slice(0,count);
   }
   function distanceSquared(a,b){var x=a[0]-b[0],y=a[1]-b[1],z=a[2]-b[2];return x*x+y*y+z*z;}
@@ -142,7 +159,10 @@
     var pending=null,scanData=null,samples=[];busy(true); els.scan.querySelector("span:last-child").textContent="Analyzing…";
     delay(70).then(function(){return evalHost("SwatchColors.scanExact()",4);}).then(function(data){
       scanData=data;
-      var chain=Promise.resolve(),cols=20,rows=12,batchSize=16;
+      // 28x16 em vez de 20x12: elementos finos, como uma palavra em fonte
+      // manuscrita, precisam ser atingidos por pelo menos duas amostras para
+      // serem reconhecidos como area chapada.
+      var chain=Promise.resolve(),cols=28,rows=16,batchSize=16;
       for(var start=0;start<cols*rows;start+=batchSize)(function(batchStart){
         chain=chain.then(function(){return evalHost("SwatchColors.sampleBatch("+batchStart+","+batchSize+","+cols+","+rows+")",4);}).then(function(batch){
           if(batch.comp!==scanData.comp)throw new Error("The active composition changed during analysis.");
@@ -153,7 +173,16 @@
     }).then(function(data){
       var propertyExact=data.exact.map(exactToDisplay);
       pending={name:data.comp,comp:data.comp,time:data.time,exact:propertyExact.slice(0,64),based:[]};
-      pending.based=paletteFromSamples(data.samples||[],12).filter(function(color){return !pending.exact.some(function(exact){return distance(color.rgb,exact.rgb)<=10;});});activatePalette(pending,true);els.name.value=pending.name;
+      var sampled=paletteFromSamples(data.samples||[],12).filter(function(color){return !pending.exact.some(function(exact){return distance(color.rgb,exact.rgb)<=10;});});
+      // Uma cor que se repete identica em varias amostras veio de uma area
+      // chapada do frame - uma logo, um texto, um fundo liso. Na pratica ela
+      // e tao "exata" quanto um Solid, mesmo sem existir como propriedade,
+      // entao sobe para EXACT COLORS em vez de ficar entre as cores derivadas.
+      sampled.forEach(function(color){
+        if(color.flat&&pending.exact.length<64)pending.exact.push(color);
+        else pending.based.push(color);
+      });
+      activatePalette(pending,true);els.name.value=pending.name;
       setStatus((state.exact.length+state.based.length)+" colors found");toast("Palettes created");
     })
       .catch(function(e){setStatus(e.message,"error");toast(e.message);}).then(function(){busy(false);els.scan.querySelector("span:last-child").textContent="Read composition";});

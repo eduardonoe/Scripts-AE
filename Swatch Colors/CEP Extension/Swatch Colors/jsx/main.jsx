@@ -6,10 +6,21 @@
     mesmo numero de versao. Ao alterar um dos dois, subir a versao nos dois.
 
     v1.0.3 changelog:
-    - Alinha a versao com o painel ScriptUI. Sem mudanca funcional no CEP.
-
-    v1.0.2 changelog:
-    - Alinha a versao com o painel ScriptUI. Sem mudanca funcional no CEP.
+    - Melhora a precisao em areas de cor chapada. O sampleImage usava raio 2,
+      que faz a media de uma caixa de 25 pixels e sujava qualquer amostra perto
+      de uma borda; agora usa raio 0.5 (um pixel). No painel, a cor de cada
+      grupo passa a ser o valor exato mais repetido, e nao a media do grupo:
+      com o ruido tipico de video comprimido a media devolvia #FEBF01 no lugar
+      de #FFBF00. Cores vindas de areas chapadas aparecem como "Flat area".
+    - Cores de areas chapadas do frame passam a entrar em "Exact colors", e nao
+      mais na paleta derivada: um titulo branco ou uma palavra em ambar num frame
+      de video sao tao exatos quanto um Solid, mesmo sem existir como propriedade
+      de camada. O criterio e a dominancia da cor dentro do proprio grupo, nao a
+      contagem de amostras: assim um elemento pequeno, atingido por poucas
+      amostras mas todas iguais, e reconhecido, enquanto o banding de um degrade
+      nao vaza para as cores exatas. A grade de amostragem foi de 20x12 para
+      28x16 para que elementos finos sejam atingidos mais de uma vez.
+    - Alinha a versao com o painel ScriptUI.
 
     v1.0.1 changelog:
     - Expands exact-color discovery and improves nested-composition coverage.
@@ -151,7 +162,10 @@ SwatchColors.sampleBatch = function (start, count, cols, rows) {
         sampler.shy = true;
         sampler.selected = false;
         var sourceTextProp = sampler.property("ADBE Text Properties").property("ADBE Text Document");
-        var sampleRadius = 2;
+        // 0.5 = um unico pixel. sampleImage faz a MEDIA de uma caixa de
+        // +-raio, entao raio 2 misturava 25 pixels e sujava toda amostra
+        // perto de uma borda, impedindo que cores chapadas saissem puras.
+        var sampleRadius = 0.5;
         sourceTextProp.expression = "var pts=[" + pointLiterals.join(",") + "],r=[],o,c,a,L,p;for(var j=0;j<pts.length;j++){o=[0,0,0,0];for(var n=thisComp.numLayers;n>=1;n--){L=thisComp.layer(n);if(L.index!=thisLayer.index&&L.hasVideo&&L.active){try{p=L.fromComp([pts[j][0],pts[j][1],0]);c=L.sampleImage(p,[" + sampleRadius + "," + sampleRadius + "],true,time);a=c[3];o=[c[0]*a+o[0]*(1-a),c[1]*a+o[1]*(1-a),c[2]*a+o[2]*(1-a),a+o[3]*(1-a)];}catch(e){}}}if(o[3]>.001){r.push(o[0]/o[3]);r.push(o[1]/o[3]);r.push(o[2]/o[3]);r.push(o[3]);}else{r.push(0);r.push(0);r.push(0);r.push(0);}}r.join(',');";
         var sampleDocument = sourceTextProp.valueAtTime(t, false), rawSamples = String(sampleDocument.text).split(","), jsonSamples = [];
         for (var rs = 0; rs + 3 < rawSamples.length; rs += 4) jsonSamples.push("[" + Number(rawSamples[rs]) + "," + Number(rawSamples[rs + 1]) + "," + Number(rawSamples[rs + 2]) + "," + Number(rawSamples[rs + 3]) + "]");
