@@ -1,6 +1,12 @@
 /*
     Swatch Colors — host bridge for After Effects (ExtendScript / ES3).
-    Version: 1.0.1
+    Version: 1.0.2
+
+    A extensao CEP e o painel ScriptUI (Swatch Colors.jsx) compartilham o
+    mesmo numero de versao. Ao alterar um dos dois, subir a versao nos dois.
+
+    v1.0.2 changelog:
+    - Alinha a versao com o painel ScriptUI. Sem mudanca funcional no CEP.
 
     v1.0.1 changelog:
     - Expands exact-color discovery and improves nested-composition coverage.

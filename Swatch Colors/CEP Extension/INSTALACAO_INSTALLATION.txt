@@ -11,7 +11,7 @@ de dentro do ZIP.
 
 COMO INSTALAR
 
-1. Extraia o arquivo Swatch_Colors_CEP_1.0.1.zip para uma pasta.
+1. Extraia o arquivo Swatch_Colors_CEP_1.0.2.zip para uma pasta.
 2. Mantenha o arquivo Install_Swatch_Colors.bat ao lado da
    pasta "Swatch Colors".
 3. Clique com o botão direito em Install_Swatch_Colors.bat.
@@ -52,7 +52,7 @@ installer. Do not run the BAT file directly from inside the ZIP.
 
 HOW TO INSTALL
 
-1. Extract Swatch_Colors_CEP_1.0.1.zip to a folder.
+1. Extract Swatch_Colors_CEP_1.0.2.zip to a folder.
 2. Keep Install_Swatch_Colors.bat beside the "Swatch Colors"
    folder.
 3. Right-click Install_Swatch_Colors.bat.

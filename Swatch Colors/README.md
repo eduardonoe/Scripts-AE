@@ -20,6 +20,19 @@ Both read the composition the same way and share the same palette logic. The Scr
 
 Known limitation of the ScriptUI version: right-clicking a swatch fills the HEX field at the top of the panel and selects it, but automatic copying to the system clipboard is unreliable in this environment, so press `Ctrl+C` to copy. The CEP version copies directly.
 
+## Versioning
+
+**Both versions always carry the same version number.** When either one changes, bump the version in both. Current: **1.0.2**. The version appears in five places:
+
+| File | What to change |
+| --- | --- |
+| `Swatch Colors.jsx` | `Version:` header and the `APP_NAME + " x.y.z"` window title |
+| `CEP Extension/Swatch Colors/jsx/main.jsx` | `Version:` header |
+| `CEP Extension/Swatch Colors/CSXS/manifest.xml` | `ExtensionBundleVersion` and `Extension ... Version` |
+| `CEP Extension/Swatch Colors/panel/index.html` | the `<small>` tag next to the title |
+| `CEP Extension/Swatch_Colors_CEP_x.y.z.zip` | rebuild the archive under the new name |
+
+## Reading the composition
 
 The panel reads the active composition in two ways:
 
@@ -46,10 +59,10 @@ The source is always the composition currently open in the active Composition Vi
 
 The release ZIP includes `Install_Swatch_Colors.bat`, which installs the extension and enables unsigned CEP extensions automatically.
 
-1. Extract the entire `Swatch_Colors_CEP_1.0.1.zip` archive to a folder, or use the `CEP Extension` folder from this repository directly — both have the same layout, with `Install_Swatch_Colors.bat` sitting beside a `Swatch Colors` folder.
+1. Extract the entire `Swatch_Colors_CEP_1.0.2.zip` archive to a folder, or use the `CEP Extension` folder from this repository directly — both have the same layout, with `Install_Swatch_Colors.bat` sitting beside a `Swatch Colors` folder.
 2. Right-click `Install_Swatch_Colors.bat` and choose **Run as administrator**. The installer also requests elevation automatically when needed.
-4. Wait for the installation-complete message, then restart After Effects.
-5. Open **Window > Extensions (Legacy) > Swatch Colors**.
+3. Wait for the installation-complete message, then restart After Effects.
+4. Open **Window > Extensions (Legacy) > Swatch Colors**.
 
 The installer removes the previous `Swatch Colors` extension folder before copying the new files to:
 
@@ -57,7 +70,7 @@ The installer removes the previous `Swatch Colors` extension folder before copyi
 
 Running the installer again updates the panel without deleting the active palette, recent history, or saved palettes. These are stored separately in the CEP profile.
 
-For complete instructions in Portuguese and English, see `INSTALACAO_INSTALLATION.txt` inside the package.
+For complete instructions in Portuguese and English, see `CEP Extension/INSTALACAO_INSTALLATION.txt`.
 
 ## Installing the ScriptUI panel
 

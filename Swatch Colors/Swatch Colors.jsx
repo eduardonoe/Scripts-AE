@@ -2,6 +2,9 @@
     Swatch Colors — standalone ScriptUI panel for After Effects (ExtendScript / ES3).
     Version: 1.0.2
 
+    A extensao CEP e este painel ScriptUI compartilham o mesmo numero de
+    versao. Ao alterar um dos dois, subir a versao nos dois.
+
     v1.0.2 changelog:
     - Corrige uso de Date.prototype.toISOString, inexistente no ExtendScript (ES3),
       que abortava a releitura da composicao, o salvamento de paletas e a memoria
@@ -448,7 +451,7 @@
     // ---------------------------------------------------------------------
 
     function buildUI(thisObj) {
-        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " 1.0.1", undefined, { resizeable: true });
+        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " 1.0.2", undefined, { resizeable: true });
         win.orientation = "column";
         win.alignChildren = ["fill", "top"];
         win.spacing = 8;
