@@ -2,9 +2,18 @@
 
 Two versions ship in this folder:
 
-| Version | File | Install with |
+```text
+Swatch Colors/
+├── Swatch Colors.jsx                    ScriptUI panel (standalone)
+├── Install_Swatch_Colors_ScriptUI.bat   installs the .jsx
+└── CEP Extension/
+    ├── Install_Swatch_Colors.bat        installs the CEP extension
+    └── Swatch Colors/                   the extension itself
+```
+
+| Version | Where | Install with |
 | --- | --- | --- |
-| CEP extension (full interface, skins, drag-to-reorder cards) | `panel/`, `jsx/`, `CSXS/` | `Install_Swatch_Colors.bat` |
+| CEP extension (full interface, skins, drag-to-reorder cards) | `CEP Extension/Swatch Colors/` | `CEP Extension/Install_Swatch_Colors.bat` |
 | ScriptUI panel (standalone, no CEP required) | `Swatch Colors.jsx` | `Install_Swatch_Colors_ScriptUI.bat` |
 
 Both read the composition the same way and share the same palette logic. The ScriptUI version is a single self-contained file that docks like any other panel in `Window`, and keeps its palettes in the user profile instead of the CEP storage. Its interface is plainer, since ScriptUI has no HTML/CSS: no skins, no collapsible cards, and no reordering.
@@ -37,9 +46,8 @@ The source is always the composition currently open in the active Composition Vi
 
 The release ZIP includes `Install_Swatch_Colors.bat`, which installs the extension and enables unsigned CEP extensions automatically.
 
-1. Extract the entire `Swatch_Colors_CEP_1.0.1.zip` archive to a folder. Do not run the installer from inside the ZIP.
-2. Keep `Install_Swatch_Colors.bat` beside the extracted `Swatch Colors` folder.
-3. Right-click `Install_Swatch_Colors.bat` and choose **Run as administrator**. The installer also requests elevation automatically when needed.
+1. Extract the entire `Swatch_Colors_CEP_1.0.1.zip` archive to a folder, or use the `CEP Extension` folder from this repository directly — both have the same layout, with `Install_Swatch_Colors.bat` sitting beside a `Swatch Colors` folder.
+2. Right-click `Install_Swatch_Colors.bat` and choose **Run as administrator**. The installer also requests elevation automatically when needed.
 4. Wait for the installation-complete message, then restart After Effects.
 5. Open **Window > Extensions (Legacy) > Swatch Colors**.
 
