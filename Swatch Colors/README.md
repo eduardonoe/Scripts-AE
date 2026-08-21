@@ -22,7 +22,7 @@ Known limitation of the ScriptUI version: right-clicking a swatch fills the HEX 
 
 ## Versioning
 
-**Both versions always carry the same version number.** When either one changes, bump the version in both. Current: **1.0.2**. The version appears in five places:
+**Both versions always carry the same version number.** When either one changes, bump the version in both. Current: **1.0.3**. The version appears in five places:
 
 | File | What to change |
 | --- | --- |
@@ -59,7 +59,7 @@ The source is always the composition currently open in the active Composition Vi
 
 The release ZIP includes `Install_Swatch_Colors.bat`, which installs the extension and enables unsigned CEP extensions automatically.
 
-1. Extract the entire `Swatch_Colors_CEP_1.0.2.zip` archive to a folder, or use the `CEP Extension` folder from this repository directly — both have the same layout, with `Install_Swatch_Colors.bat` sitting beside a `Swatch Colors` folder.
+1. Extract the entire `Swatch_Colors_CEP_1.0.3.zip` archive to a folder, or use the `CEP Extension` folder from this repository directly — both have the same layout, with `Install_Swatch_Colors.bat` sitting beside a `Swatch Colors` folder.
 2. Right-click `Install_Swatch_Colors.bat` and choose **Run as administrator**. The installer also requests elevation automatically when needed.
 3. Wait for the installation-complete message, then restart After Effects.
 4. Open **Window > Extensions (Legacy) > Swatch Colors**.

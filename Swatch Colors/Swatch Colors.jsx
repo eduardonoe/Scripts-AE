@@ -1,9 +1,15 @@
 /*
     Swatch Colors — standalone ScriptUI panel for After Effects (ExtendScript / ES3).
-    Version: 1.0.2
+    Version: 1.0.3
 
     A extensao CEP e este painel ScriptUI compartilham o mesmo numero de
     versao. Ao alterar um dos dois, subir a versao nos dois.
+
+    v1.0.3 changelog:
+    - Faz a copia do HEX chegar de fato a area de transferencia. No processo
+      do After Effects, chamar o powershell direto nao executa e o clip.exe
+      nao e encontrado no PATH; a unica rota que funciona e o cmd lancando o
+      powershell, que e a usada agora.
 
     v1.0.2 changelog:
     - Corrige uso de Date.prototype.toISOString, inexistente no ExtendScript (ES3),
@@ -356,21 +362,23 @@
         return filtered.slice(0, count);
     }
 
-    // Copies to the OS clipboard. Diagnostics on AE 26.3 showed that
-    // PowerShell does not run through system.callSystem while cmd.exe
-    // does, so the Windows path goes through cmd only. The value is
-    // passed via a temp file (BINARY, so ExtendScript writes no BOM --
-    // a BOM would end up at the start of the pasted text).
+    // Copies to the OS clipboard.
+    //
+    // Measured on AE 26.3 with the Tools/clipboard-diagnostic.jsx probe:
+    //   - launching powershell directly through system.callSystem does
+    //     nothing at all;
+    //   - clip.exe is not resolvable on the PATH of the AE process
+    //     ("where clip" comes back empty), so every clip-based route fails;
+    //   - cmd.exe runs, and powershell launched *by cmd* runs too.
+    // That last combination is the only one that works here, so it is what
+    // this uses. The value is single-quoted for PowerShell, which keeps the
+    // leading "#" literal instead of starting a comment.
     function copyToClipboard(text) {
         var value = String(text);
         try {
             if (Folder.fs === "Windows") {
-                var tmp = File(Folder.temp.fsName + "\\swatch_colors_clip.txt");
-                tmp.encoding = "BINARY";
-                tmp.open("w");
-                tmp.write(value);
-                tmp.close();
-                system.callSystem('cmd.exe /c clip < "' + tmp.fsName + '"');
+                var safe = value.replace(/'/g, "''");
+                system.callSystem('cmd.exe /c powershell -NoProfile -Command "Set-Clipboard -Value \'' + safe + '\'"');
             } else {
                 var safeMac = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
                 system.callSystem('osascript -e "set the clipboard to \\"' + safeMac + '\\""');
@@ -451,7 +459,7 @@
     // ---------------------------------------------------------------------
 
     function buildUI(thisObj) {
-        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " 1.0.2", undefined, { resizeable: true });
+        var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", APP_NAME + " 1.0.3", undefined, { resizeable: true });
         win.orientation = "column";
         win.alignChildren = ["fill", "top"];
         win.spacing = 8;
