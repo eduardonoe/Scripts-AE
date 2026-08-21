@@ -1,4 +1,16 @@
-# Swatch Colors — CEP panel for After Effects
+# Swatch Colors — CEP panel and ScriptUI panel for After Effects
+
+Two versions ship in this folder:
+
+| Version | File | Install with |
+| --- | --- | --- |
+| CEP extension (full interface, skins, drag-to-reorder cards) | `panel/`, `jsx/`, `CSXS/` | `Install_Swatch_Colors.bat` |
+| ScriptUI panel (standalone, no CEP required) | `Swatch Colors.jsx` | `Install_Swatch_Colors_ScriptUI.bat` |
+
+Both read the composition the same way and share the same palette logic. The ScriptUI version is a single self-contained file that docks like any other panel in `Window`, and keeps its palettes in the user profile instead of the CEP storage. Its interface is plainer, since ScriptUI has no HTML/CSS: no skins, no collapsible cards, and no reordering.
+
+Known limitation of the ScriptUI version: right-clicking a swatch fills the HEX field at the top of the panel and selects it, but automatic copying to the system clipboard is unreliable in this environment, so press `Ctrl+C` to copy. The CEP version copies directly.
+
 
 The panel reads the active composition in two ways:
 
@@ -38,6 +50,14 @@ The installer removes the previous `Swatch Colors` extension folder before copyi
 Running the installer again updates the panel without deleting the active palette, recent history, or saved palettes. These are stored separately in the CEP profile.
 
 For complete instructions in Portuguese and English, see `INSTALACAO_INSTALLATION.txt` inside the package.
+
+## Installing the ScriptUI panel
+
+1. Right-click `Install_Swatch_Colors_ScriptUI.bat` and choose **Run as administrator**. It also requests elevation automatically.
+2. The installer finds every `Adobe After Effects *` installation under `C:\Program Files\Adobe`, deletes any previous copy, and installs `Swatch Colors.jsx` into each one's `Support Files\Scripts\ScriptUI Panels`.
+3. Restart After Effects and open **Window > Swatch Colors.jsx**.
+
+Saved palettes live in `%APPDATA%\Swatch Colors` and survive reinstalls and updates.
 
 ## Manual or development installation
 
