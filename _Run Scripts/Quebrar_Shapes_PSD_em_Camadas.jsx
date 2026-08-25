@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 5.1.0
+    Version: 5.2.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
@@ -23,6 +23,11 @@
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 5.2.0: agrupamento de furo agora também considera a flag
+      "Inverted" da máscara (não só o modo Subtract/Intersect), pois é
+      assim que o Auto-trace do AE costuma marcar o miolo vazado
+      (modo None + Inverted = true). Corrige furo virando shape sólido
+      separado em vez de buraco real.
     - 5.1.0: máscaras Subtract/Intersect que representam furo de uma
       letra/objeto (ex.: miolo do "A", "O", "B") deixam de virar shape
       sólido separado — agora são fundidas via Merge Paths no mesmo
@@ -138,14 +143,16 @@
     }
 
     // --- agrupa máscaras que formam UM objeto composto (ex.: letra "A" = contorno + furo) ---
-    // Uma máscara em modo Add (ou a primeira da lista) inicia um objeto novo.
-    // Máscaras em Subtract/Intersect/etc. logo em seguida pertencem ao mesmo objeto (são o furo).
+    // Uma máscara "normal" (não invertida, modo diferente de Subtract/Intersect) inicia um
+    // objeto novo. Uma máscara marcada como furo (Inverted = true, ou modo Subtract/Intersect)
+    // pertence ao objeto anterior (é o miolo vazado dele).
     function groupMasksByCompound(maskGroup) {
         var groups = [];
         var current = null;
         for (var i = 1; i <= maskGroup.numProperties; i++) {
             var m = maskGroup.property(i);
-            var iniciaObjetoNovo = (!current) || (m.maskMode === MaskMode.ADD) || (m.maskMode === MaskMode.NONE);
+            var ehFuro = (m.inverted === true) || (m.maskMode === MaskMode.SUBTRACT) || (m.maskMode === MaskMode.INTERSECT);
+            var iniciaObjetoNovo = (!current) || !ehFuro;
             if (iniciaObjetoNovo) {
                 current = [];
                 groups.push(current);
