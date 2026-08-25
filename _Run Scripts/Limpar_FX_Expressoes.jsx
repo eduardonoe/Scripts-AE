@@ -1,7 +1,7 @@
 /*
     LIMPAR EFEITOS, EXPRESSÕES E LAYER STYLES
     After Effects JSX
-    Version: 1.3.0
+    Version: 1.3.1
 
     Remove todos os efeitos, todas as expressões e todos os layer styles
     das camadas selecionadas, de uma só vez, 100% silencioso (sem nenhuma
@@ -33,6 +33,11 @@
     Selecione os layers e execute o script.
 
     Changelog:
+    - 1.3.1: corrige a verificação da sondagem, que invalidava até o
+      comando certo. O grupo "ADBE Layer Styles" existe SEMPRE (10 slots
+      fixos), então checar a presença do grupo dava sempre "ainda tem
+      style" e o acerto era desfeito pelo Undo. Agora conta os slots com
+      .enabled = true, que é o indicador real de style aplicado.
     - 1.3.0: descoberta automática do ID do comando "Remove All" de Layer
       Styles, ancorada em comandos exclusivos daquele submenu, com
       verificação, undo automático em caso de erro e cache do ID.
@@ -88,11 +93,26 @@
         }
     }
 
-    function contarComStyles(layerArr) {
+    // ATENÇÃO: o grupo "ADBE Layer Styles" existe SEMPRE, com os 10 slots fixos, mesmo em
+    // camada sem style nenhum. Então a presença do grupo não diz nada — o que indica style
+    // realmente aplicado é o .enabled de cada slot.
+    function contarStylesAtivos(layer) {
         var n = 0;
-        for (var i = 0; i < layerArr.length; i++) {
-            if (getStylesGroup(layerArr[i])) n++;
+        var styles = getStylesGroup(layer);
+        if (!styles) return 0;
+        for (var s = 1; s <= styles.numProperties; s++) {
+            try {
+                var style = styles.property(s);
+                if (style.matchName === "ADBE Blend Options Group") continue;
+                if (style.enabled) n++;
+            } catch (e) {}
         }
+        return n;
+    }
+
+    function totalStylesAtivos(layerArr) {
+        var n = 0;
+        for (var i = 0; i < layerArr.length; i++) n += contarStylesAtivos(layerArr[i]);
         return n;
     }
 
@@ -121,7 +141,7 @@
     // styles, desfaz na hora — assim um comando errado não deixa rastro.
     function executarEVerificar(cmdId, alvos) {
         if (!cmdId) return false;
-        if (contarComStyles(alvos) === 0) return true;
+        if (totalStylesAtivos(alvos) === 0) return true;
 
         try {
             app.executeCommand(cmdId);
@@ -129,13 +149,13 @@
             return false;
         }
 
-        if (contarComStyles(alvos) === 0) return true;
+        if (totalStylesAtivos(alvos) === 0) return true;
 
         try { app.executeCommand(UNDO_CMD_ID); } catch (e) {}
         return false;
     }
 
-    function removerLayerStyles(alvos) {
+    function removerLayerStyles(alvos, diag) {
         // 1) ID já descoberto antes
         var salvo = getSavedCmdId();
         if (salvo && executarEVerificar(salvo, alvos)) return true;
@@ -153,16 +173,18 @@
         // 3) sondagem ancorada em comandos exclusivos do submenu Layer Styles.
         //    Ordem do submenu: Convert to Editable Styles, Show All, Remove All, ...
         var ancoras = ["Convert to Editable Styles", "Show All", "Converter em Estilos Editáveis", "Mostrar tudo"];
-        var offsets = [1, 2, 3, -1, -2, -3];
+        var offsets = [1, 2, 3, 4, -1, -2, -3];
         var jaTestados = {};
 
         for (var a = 0; a < ancoras.length; a++) {
             var base = app.findMenuCommandId(ancoras[a]);
             if (!base) continue;
+            diag.ancorasAchadas.push(ancoras[a] + "=" + base);
             for (var o = 0; o < offsets.length; o++) {
                 var candidato = base + offsets[o];
                 if (candidato <= 0 || jaTestados[candidato]) continue;
                 jaTestados[candidato] = true;
+                diag.candidatosTestados++;
                 if (executarEVerificar(candidato, alvos)) {
                     saveCmdId(candidato);
                     return true;
@@ -217,15 +239,16 @@
 
     var comStyles = [];
     for (var i = 0; i < layers.length; i++) {
-        if (getStylesGroup(layers[i])) comStyles.push(layers[i]);
+        if (contarStylesAtivos(layers[i]) > 0) comStyles.push(layers[i]);
     }
 
     var stylesRemovidos = false;
     var desligadosFallback = 0;
+    var diag = { ancorasAchadas: [], candidatosTestados: 0 };
 
     if (comStyles.length > 0) {
         selecionar(comStyles);
-        stylesRemovidos = removerLayerStyles(comStyles);
+        stylesRemovidos = removerLayerStyles(comStyles, diag);
 
         if (!stylesRemovidos) {
             app.beginUndoGroup("Desligar Layer Styles");
@@ -246,7 +269,10 @@
             "versão do After Effects.\n\n" +
             "Como alternativa, todos os styles foram DESLIGADOS: " + desligadosFallback + " style(s) " +
             "em " + comStyles.length + " camada(s). Nada deles renderiza mais, mas o grupo " +
-            "continua listado na timeline."
+            "continua listado na timeline.\n\n" +
+            "[diagnóstico]\n" +
+            "Âncoras encontradas: " + (diag.ancorasAchadas.length ? diag.ancorasAchadas.join(", ") : "nenhuma") + "\n" +
+            "IDs testados: " + diag.candidatosTestados
         );
     }
 })();
