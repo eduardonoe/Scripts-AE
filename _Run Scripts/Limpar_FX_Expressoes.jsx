@@ -1,18 +1,25 @@
 /*
-    LIMPAR EFEITOS E EXPRESSÕES
+    LIMPAR EFEITOS, EXPRESSÕES E LAYER STYLES
     After Effects JSX
-    Version: 1.0.1
+    Version: 1.1.0
 
-    Remove todos os efeitos e todas as expressões das camadas selecionadas,
-    de uma só vez, 100% silencioso (sem nenhuma janela/alerta).
+    Remove todos os efeitos, todas as expressões e todos os layer styles
+    das camadas selecionadas, de uma só vez, 100% silencioso (sem nenhuma
+    janela/alerta).
+
+    Keyframes das propriedades padrão (Transform, texto, shape) são
+    preservados — só somem keyframes que estavam dentro de um efeito ou
+    layer style removido.
 
     Selecione os layers e execute o script.
 
     Changelog:
+    - 1.1.0: remove também os layer styles (Color Overlay, Drop Shadow,
+      Stroke, etc.), preservando o Blending Options do grupo.
     - 1.0.1: removido alerta final e alertas de validação (execução silenciosa).
 */
 (function limparFxExpressoes() {
-    app.beginUndoGroup("Limpar Efeitos e Expressões");
+    app.beginUndoGroup("Limpar Efeitos, Expressões e Layer Styles");
 
     var comp = app.project.activeItem;
     if (!(comp instanceof CompItem)) {
@@ -48,8 +55,29 @@
         return count;
     }
 
+    // remove os layer styles (Color Overlay, Drop Shadow, Stroke, etc.).
+    // A propriedade 1 do grupo é "Blending Options", que não é um style e não pode ser
+    // removida — só os styles de fato, do fim para o começo para não bagunçar os índices.
+    function removeLayerStyles(layer) {
+        var count = 0;
+        try {
+            var styles = layer.property("ADBE Layer Styles");
+            if (!styles) return count;
+            for (var s = styles.numProperties; s >= 1; s--) {
+                var style = styles.property(s);
+                if (style.matchName === "ADBE Blend Options Group") continue;
+                try {
+                    style.remove();
+                    count++;
+                } catch (err) {}
+            }
+        } catch (err) {}
+        return count;
+    }
+
     var expressionsRemoved = 0;
     var effectsRemoved = 0;
+    var stylesRemoved = 0;
 
     for (var i = 0; i < layers.length; i++) {
         var layer = layers[i];
@@ -67,6 +95,8 @@
                 }
             }
         } catch (err) {}
+
+        stylesRemoved += removeLayerStyles(layer);
     }
 
     app.endUndoGroup();
