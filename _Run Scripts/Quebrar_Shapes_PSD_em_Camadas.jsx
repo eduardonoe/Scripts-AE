@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 5.0.0
+    Version: 5.1.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
@@ -11,9 +11,11 @@
         - se não tiver, dispara o Auto-trace nativo do AE (abre o
           diálogo padrão para você ajustar tolerância e confirmar —
           não existe forma headless de fazer isso via script no AE).
-      Depois converte cada máscara em um grupo dentro de um Shape
-      Layer novo (path de máscara e path de shape são compatíveis) e
-      separa esse Shape Layer em camadas individuais.
+      Máscaras em modo Subtract/Intersect logo após uma máscara Add
+      são tratadas como FURO do mesmo objeto (ex.: miolo da letra "A"
+      ou "O") e combinadas num único grupo via Merge Paths — não viram
+      shapes sólidos separados. Depois separa cada objeto resultante
+      em uma camada individual.
     - Se a camada já tiver vetor nativo (raro em PSD/AI importado como
       vetor de verdade): tenta primeiro "Create Shapes from Vector
       Layer" antes de checar/gerar máscaras.
@@ -21,6 +23,10 @@
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 5.1.0: máscaras Subtract/Intersect que representam furo de uma
+      letra/objeto (ex.: miolo do "A", "O", "B") deixam de virar shape
+      sólido separado — agora são fundidas via Merge Paths no mesmo
+      grupo do objeto pai, preservando o furo real.
     - 5.0.0: volta a disparar o Auto-trace nativo (com diálogo) quando
       a camada raster ainda não tem máscara, a pedido do usuário —
       preferível a exigir passo manual antes de rodar o script.
@@ -131,7 +137,25 @@
         }
     }
 
-    // --- converte as máscaras de uma camada em um Shape Layer novo ---
+    // --- agrupa máscaras que formam UM objeto composto (ex.: letra "A" = contorno + furo) ---
+    // Uma máscara em modo Add (ou a primeira da lista) inicia um objeto novo.
+    // Máscaras em Subtract/Intersect/etc. logo em seguida pertencem ao mesmo objeto (são o furo).
+    function groupMasksByCompound(maskGroup) {
+        var groups = [];
+        var current = null;
+        for (var i = 1; i <= maskGroup.numProperties; i++) {
+            var m = maskGroup.property(i);
+            var iniciaObjetoNovo = (!current) || (m.maskMode === MaskMode.ADD) || (m.maskMode === MaskMode.NONE);
+            if (iniciaObjetoNovo) {
+                current = [];
+                groups.push(current);
+            }
+            current.push(m);
+        }
+        return groups;
+    }
+
+    // --- converte as máscaras de uma camada em um Shape Layer novo, preservando furos ---
     function masksToShapeLayer(sourceLayer) {
         var maskGroup = sourceLayer.property("ADBE Mask Parade");
         if (!maskGroup || maskGroup.numProperties === 0) return null;
@@ -141,16 +165,29 @@
         copyTransform(sourceLayer, shapeLayer);
 
         var rootContents = shapeLayer.property("ADBE Root Vectors Group");
+        var objetos = groupMasksByCompound(maskGroup);
 
-        for (var i = 1; i <= maskGroup.numProperties; i++) {
-            var mask = maskGroup.property(i);
-            var shapeVal = mask.property("ADBE Mask Shape").value;
+        for (var g = 0; g < objetos.length; g++) {
+            var masksDoObjeto = objetos[g];
 
             var group = rootContents.addProperty("ADBE Vector Group");
-            group.name = mask.name;
+            group.name = masksDoObjeto[0].name;
             var gc = group.property("ADBE Vectors Group");
-            var pathGroup = gc.addProperty("ADBE Vector Shape - Group");
-            pathGroup.property("ADBE Vector Shape").setValue(shapeVal);
+
+            for (var i = 0; i < masksDoObjeto.length; i++) {
+                var pathGroup = gc.addProperty("ADBE Vector Shape - Group");
+                pathGroup.property("ADBE Vector Shape").setValue(masksDoObjeto[i].property("ADBE Mask Shape").value);
+            }
+
+            // se houver mais de uma máscara no objeto, funde os paths preservando o furo
+            if (masksDoObjeto.length > 1) {
+                var merge = gc.addProperty("ADBE Vector Filter - Merge");
+                var modoFuro = (masksDoObjeto[1].maskMode === MaskMode.INTERSECT)
+                    ? MergePathsMode.INTERSECT
+                    : MergePathsMode.SUBTRACT;
+                merge.property("ADBE Vector Merge Types").setValue(modoFuro);
+            }
+
             gc.addProperty("ADBE Vector Graphic - Fill");
         }
 
