@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 1.0.0
+    Version: 1.0.1
 
     Para cada camada selecionada:
     - Se já for Shape Layer: separa cada grupo (objeto) do Contents em
@@ -11,6 +11,10 @@
       seguida, separa o resultado em camadas individuais também.
 
     Selecione as camadas e execute o script.
+
+    Changelog:
+    - 1.0.1: tenta múltiplos nomes/IDs de comando para "Create Shapes
+      from Vector Layer" e mostra debug detalhado quando a conversão falha.
 */
 (function quebrarShapesPsdEmCamadas() {
     app.beginUndoGroup("Quebrar Shapes / Converter PSD em Camadas");
@@ -63,23 +67,46 @@
         return n;
     }
 
+    // IDs conhecidos do comando "Create Shapes from Vector Layer" em diferentes
+    // versões/idiomas do After Effects (o findMenuCommandId por nome nem sempre resolve).
+    var FALLBACK_CMD_IDS = [2649, 2665, 3628];
+
     // --- tenta rodar "Create Shapes from Vector Layer" na camada isolada ---
-    function convertToShapes(layer) {
+    function convertToShapes(layer, dbg) {
         for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
         layer.selected = true;
 
-        var cmdId = app.findMenuCommandId("Create Shapes from Vector Layer");
-        if (!cmdId) cmdId = 2649; // fallback: ID conhecido do comando em versões que não resolvem pelo nome
+        var nomesComando = [
+            "Create Shapes from Vector Layer",
+            "Criar Formas a Partir de Camada de Vetor",
+            "Criar Formas a Partir da Camada Vetorial"
+        ];
 
-        try {
-            app.executeCommand(cmdId);
-        } catch (e) {
-            return null;
+        var cmdId = 0;
+        for (var n = 0; n < nomesComando.length; n++) {
+            cmdId = app.findMenuCommandId(nomesComando[n]);
+            if (cmdId) break;
         }
+        dbg.foundByName = !!cmdId;
 
-        var sel = comp.selectedLayers;
-        for (var s = 0; s < sel.length; s++) {
-            if (sel[s] instanceof ShapeLayer) return sel[s];
+        var idsParaTentar = cmdId ? [cmdId] : FALLBACK_CMD_IDS;
+        dbg.idsTentados = idsParaTentar.join(",");
+
+        for (var k = 0; k < idsParaTentar.length; k++) {
+            try {
+                app.executeCommand(idsParaTentar[k]);
+            } catch (e) {
+                dbg.erro = e.toString();
+                continue;
+            }
+            var sel = comp.selectedLayers;
+            dbg.selApos = sel.length;
+            for (var s = 0; s < sel.length; s++) {
+                if (sel[s] instanceof ShapeLayer) {
+                    dbg.cmdIdUsado = idsParaTentar[k];
+                    return sel[s];
+                }
+            }
         }
         return null;
     }
@@ -88,6 +115,7 @@
     var gruposSeparados = 0;
     var psdConvertidos = 0;
     var falhasConversao = 0;
+    var primeiroDebug = null;
 
     for (var i = 0; i < targetLayers.length; i++) {
         var layer = targetLayers[i];
@@ -99,25 +127,36 @@
                 gruposSeparados += qtd;
             }
         } else if (layer instanceof AVLayer && layer.source) {
-            var novoShapeLayer = convertToShapes(layer);
+            var dbg = {};
+            var novoShapeLayer = convertToShapes(layer, dbg);
             if (novoShapeLayer) {
                 psdConvertidos++;
                 var qtd2 = splitShapeLayer(novoShapeLayer);
                 if (qtd2 > 1) gruposSeparados += qtd2;
             } else {
                 falhasConversao++;
+                if (!primeiroDebug) primeiroDebug = dbg;
             }
         }
     }
 
     app.endUndoGroup();
 
-    alert(
+    var msg =
         "Concluído!\n\n" +
         "Shape layers quebrados: " + camadasQuebradas + "\n" +
         "Camadas PSD convertidas em shape: " + psdConvertidos + "\n" +
-        "Objetos separados em camadas: " + gruposSeparados +
-        (falhasConversao > 0 ? "\n\nFalhas na conversão PSD → Shape: " + falhasConversao +
-            "\n(a camada pode não conter dado vetorial, ou o comando \"Create Shapes from Vector Layer\" não foi encontrado no menu desta versão do AE)" : "")
-    );
+        "Objetos separados em camadas: " + gruposSeparados;
+
+    if (falhasConversao > 0) {
+        msg += "\n\nFalhas na conversão PSD → Shape: " + falhasConversao +
+            "\n\n[debug 1ª falha]" +
+            "\nComando achado pelo nome: " + (primeiroDebug.foundByName ? "sim" : "não") +
+            "\nIDs tentados: " + primeiroDebug.idsTentados +
+            "\nID usado com sucesso: " + (primeiroDebug.cmdIdUsado || "nenhum") +
+            "\nCamadas selecionadas após comando: " + (primeiroDebug.selApos !== undefined ? primeiroDebug.selApos : "n/a") +
+            (primeiroDebug.erro ? "\nErro: " + primeiroDebug.erro : "");
+    }
+
+    alert(msg);
 })();
