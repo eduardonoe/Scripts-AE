@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 5.2.0
+    Version: 6.0.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
@@ -11,23 +11,26 @@
         - se não tiver, dispara o Auto-trace nativo do AE (abre o
           diálogo padrão para você ajustar tolerância e confirmar —
           não existe forma headless de fazer isso via script no AE).
-      Máscaras em modo Subtract/Intersect logo após uma máscara Add
-      são tratadas como FURO do mesmo objeto (ex.: miolo da letra "A"
-      ou "O") e combinadas num único grupo via Merge Paths — não viram
-      shapes sólidos separados. Depois separa cada objeto resultante
-      em uma camada individual.
+      Qualquer máscara cuja área caiba inteira dentro de outra (por
+      posição/tamanho, não por modo) é tratada como FURO daquela
+      máscara — ex.: miolo da letra "A", "O", "B" — e fundida no mesmo
+      grupo via Merge Paths, sem virar shape sólido separado.
     - Se a camada já tiver vetor nativo (raro em PSD/AI importado como
       vetor de verdade): tenta primeiro "Create Shapes from Vector
       Layer" antes de checar/gerar máscaras.
+    - As camadas resultantes da separação são reordenadas na stack:
+      linhas de cima pra baixo (para logos/desenhos com elementos em
+      alturas diferentes) e, dentro da mesma linha, esquerda pra
+      direita (ordem natural de leitura para texto).
 
     Selecione as camadas e execute o script.
 
     Changelog:
-    - 5.2.0: agrupamento de furo agora também considera a flag
-      "Inverted" da máscara (não só o modo Subtract/Intersect), pois é
-      assim que o Auto-trace do AE costuma marcar o miolo vazado
-      (modo None + Inverted = true). Corrige furo virando shape sólido
-      separado em vez de buraco real.
+    - 6.0.0: agrupamento de furo trocado para detecção por contenção
+      espacial (bounding box), já que modo/Inverted da máscara não
+      são um sinal confiável no Auto-trace desta versão do AE. Também
+      adicionada reorganização automática das camadas resultantes por
+      posição (linha e esquerda→direita).
     - 5.1.0: máscaras Subtract/Intersect que representam furo de uma
       letra/objeto (ex.: miolo do "A", "O", "B") deixam de virar shape
       sólido separado — agora são fundidas via Merge Paths no mesmo
@@ -66,17 +69,51 @@
     // cópia estática, pois a seleção muda durante o processo
     targetLayers = targetLayers.slice(0);
 
-    // --- separa os grupos do Contents de um shape layer em camadas individuais ---
+    // --- centro (em espaço da comp) de uma camada, para ordenar por posição ---
+    function getLayerCenter(layer) {
+        var rect = layer.sourceRectAtTime(comp.time, false);
+        var transform = layer.property("ADBE Transform Group");
+        var pos = transform.property("ADBE Position").value;
+        var anchor = transform.property("ADBE Anchor Point").value;
+        return {
+            x: pos[0] + (rect.left + rect.width / 2 - anchor[0]),
+            y: pos[1] + (rect.top + rect.height / 2 - anchor[1])
+        };
+    }
+
+    // --- reordena camadas na stack: linhas de cima pra baixo, e dentro da linha, esquerda pra direita ---
+    function organizeLayersByPosition(layerArr) {
+        if (layerArr.length <= 1) return;
+
+        var comLPos = [];
+        for (var i = 0; i < layerArr.length; i++) {
+            var c = getLayerCenter(layerArr[i]);
+            comLPos.push({ layer: layerArr[i], x: c.x, y: c.y });
+        }
+
+        var LINHA_TOLERANCIA = 40; // px: considera "mesma linha" se a diferença de Y for pequena
+        comLPos.sort(function (a, b) {
+            if (Math.abs(a.y - b.y) > LINHA_TOLERANCIA) return a.y - b.y;
+            return a.x - b.x;
+        });
+
+        for (var i = 1; i < comLPos.length; i++) {
+            try { comLPos[i].layer.moveAfter(comLPos[i - 1].layer); } catch (e) {}
+        }
+    }
+
+    // --- separa os grupos do Contents de um shape layer em camadas individuais, já organizadas ---
     function splitShapeLayer(layer) {
         var contents = layer.property("ADBE Root Vectors Group");
-        if (!contents) return 0;
+        if (!contents) return [layer];
 
         var n = contents.numProperties;
-        if (n <= 1) return 0;
+        if (n <= 1) return [layer];
 
         var names = [];
         for (var i = 1; i <= n; i++) names.push(contents.property(i).name);
 
+        var novasCamadas = [];
         for (var i = n; i >= 2; i--) {
             var dup = layer.duplicate();
             var dupContents = dup.property("ADBE Root Vectors Group");
@@ -86,6 +123,7 @@
                 }
             }
             dup.name = names[i - 1];
+            novasCamadas.push(dup);
         }
 
         for (var j = contents.numProperties; j >= 1; j--) {
@@ -94,8 +132,11 @@
             }
         }
         layer.name = names[0];
+        novasCamadas.push(layer);
 
-        return n;
+        organizeLayersByPosition(novasCamadas);
+
+        return novasCamadas;
     }
 
     // --- tentativa 1: comando nativo, só funciona com vetor nativo real ---
@@ -142,22 +183,82 @@
         }
     }
 
-    // --- agrupa máscaras que formam UM objeto composto (ex.: letra "A" = contorno + furo) ---
-    // Uma máscara "normal" (não invertida, modo diferente de Subtract/Intersect) inicia um
-    // objeto novo. Uma máscara marcada como furo (Inverted = true, ou modo Subtract/Intersect)
-    // pertence ao objeto anterior (é o miolo vazado dele).
+    // --- agrupa máscaras por CONTENÇÃO ESPACIAL (bounding box) ---
+    // Modo/Inverted das máscaras do Auto-trace não são um sinal confiável aqui. Em vez disso,
+    // qualquer máscara cuja área caiba inteira dentro de outra máscara (o menor "pai" possível)
+    // é tratada como furo daquela máscara — exatamente como o miolo do "A" fica contido no
+    // contorno externo da letra.
+    function getMaskBBox(mask) {
+        var verts = mask.property("ADBE Mask Shape").value.vertices;
+        var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (var i = 0; i < verts.length; i++) {
+            var x = verts[i][0], y = verts[i][1];
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+        }
+        return { minX: minX, minY: minY, maxX: maxX, maxY: maxY };
+    }
+
+    function bboxArea(b) {
+        return Math.max(0, b.maxX - b.minX) * Math.max(0, b.maxY - b.minY);
+    }
+
+    function bboxContains(outer, inner) {
+        var pad = 0.5;
+        return inner.minX >= outer.minX - pad && inner.maxX <= outer.maxX + pad &&
+               inner.minY >= outer.minY - pad && inner.maxY <= outer.maxY + pad;
+    }
+
     function groupMasksByCompound(maskGroup) {
-        var groups = [];
-        var current = null;
+        var masks = [];
         for (var i = 1; i <= maskGroup.numProperties; i++) {
             var m = maskGroup.property(i);
-            var ehFuro = (m.inverted === true) || (m.maskMode === MaskMode.SUBTRACT) || (m.maskMode === MaskMode.INTERSECT);
-            var iniciaObjetoNovo = (!current) || !ehFuro;
-            if (iniciaObjetoNovo) {
-                current = [];
-                groups.push(current);
+            masks.push({ mask: m, bbox: getMaskBBox(m) });
+        }
+
+        var parentIndex = [];
+        for (var i = 0; i < masks.length; i++) {
+            var best = -1, bestArea = Infinity;
+            for (var j = 0; j < masks.length; j++) {
+                if (i === j) continue;
+                if (bboxContains(masks[j].bbox, masks[i].bbox)) {
+                    var area = bboxArea(masks[j].bbox);
+                    if (area < bestArea) { bestArea = area; best = j; }
+                }
             }
-            current.push(m);
+            parentIndex.push(best);
+        }
+
+        function topAncestor(idx) {
+            var visited = {};
+            while (parentIndex[idx] !== -1 && !visited[idx]) {
+                visited[idx] = true;
+                idx = parentIndex[idx];
+            }
+            return idx;
+        }
+
+        var groupsByRoot = {};
+        var rootOrder = [];
+        for (var i = 0; i < masks.length; i++) {
+            var root = topAncestor(i);
+            if (!groupsByRoot[root]) { groupsByRoot[root] = []; rootOrder.push(root); }
+            groupsByRoot[root].push(masks[i].mask);
+        }
+
+        var groups = [];
+        for (var r = 0; r < rootOrder.length; r++) {
+            var rootIdx = rootOrder[r];
+            var rootMask = masks[rootIdx].mask;
+            var arr = groupsByRoot[rootIdx];
+            arr.sort(function (a, b) {
+                if (a === rootMask) return -1;
+                if (b === rootMask) return 1;
+                return 0;
+            });
+            groups.push(arr);
         }
         return groups;
     }
@@ -186,13 +287,10 @@
                 pathGroup.property("ADBE Vector Shape").setValue(masksDoObjeto[i].property("ADBE Mask Shape").value);
             }
 
-            // se houver mais de uma máscara no objeto, funde os paths preservando o furo
+            // se houver mais de uma máscara no objeto, funde os paths preservando o(s) furo(s)
             if (masksDoObjeto.length > 1) {
                 var merge = gc.addProperty("ADBE Vector Filter - Merge");
-                var modoFuro = (masksDoObjeto[1].maskMode === MaskMode.INTERSECT)
-                    ? MergePathsMode.INTERSECT
-                    : MergePathsMode.SUBTRACT;
-                merge.property("ADBE Vector Merge Types").setValue(modoFuro);
+                merge.property("ADBE Vector Merge Types").setValue(MergePathsMode.SUBTRACT);
             }
 
             gc.addProperty("ADBE Vector Graphic - Fill");
@@ -266,10 +364,10 @@
         var layer = targetLayers[i];
 
         if (layer instanceof ShapeLayer) {
-            var qtd = splitShapeLayer(layer);
-            if (qtd > 1) {
+            var novas = splitShapeLayer(layer);
+            if (novas.length > 1) {
                 camadasQuebradas++;
-                gruposSeparados += qtd;
+                gruposSeparados += novas.length;
             }
         } else if (layer instanceof AVLayer && layer.source) {
             var novoShapeLayer = tryCreateShapesFromVector(layer);
@@ -278,8 +376,8 @@
 
             if (novoShapeLayer) {
                 psdConvertidos++;
-                var qtd2 = splitShapeLayer(novoShapeLayer);
-                if (qtd2 > 1) gruposSeparados += qtd2;
+                var novas2 = splitShapeLayer(novoShapeLayer);
+                if (novas2.length > 1) gruposSeparados += novas2.length;
             } else {
                 falhasConversao++;
                 if (!primeiroDebug) primeiroDebug = dbg;
