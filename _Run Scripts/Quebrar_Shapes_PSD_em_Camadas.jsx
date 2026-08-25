@@ -1,26 +1,37 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 2.0.0
+    Version: 4.0.0
 
     Para cada camada selecionada:
-    - Se já for Shape Layer: separa cada grupo (objeto) do Contents em
-      uma camada de shape individual.
-    - Se for camada de footage raster (ex.: layer de PSD): usa
-      layer.autoTrace() para gerar um Shape Layer real (não máscara) a
-      partir do alfa da imagem, e separa o resultado em camadas.
-    - Se a camada tiver vetor nativo (PSD/AI importado como vetor):
-      tenta primeiro "Create Shapes from Vector Layer" (mais fiel ao
-      desenho original) antes de cair no autoTrace.
+    - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
+      em uma camada de shape individual. 100% silencioso.
+    - Se for camada raster (ex.: layer de PSD) e já tiver máscaras
+      (rode Layer > Auto-trace manualmente antes, se ainda não tiver):
+      converte cada máscara em um grupo dentro de um Shape Layer novo
+      (path de máscara e path de shape são compatíveis) e separa esse
+      Shape Layer em camadas individuais. 100% silencioso, nenhuma
+      janela é aberta pelo script.
+    - Se a camada já tiver vetor nativo (raro em PSD/AI importado como
+      vetor de verdade): tenta primeiro "Create Shapes from Vector
+      Layer" antes de checar as máscaras.
+
+    IMPORTANTE: o script NUNCA abre a janela do Auto-trace. Isso não é
+    possível via script no AE (não existe API headless para isso) — o
+    comando nativo sempre exige o diálogo. Por isso, camadas raster
+    sem máscara alguma são puladas (contam como "falha").
 
     Selecione as camadas e execute o script.
 
     Changelog:
-    - 2.0.0: troca a estratégia principal para layer.autoTrace()
-      (gera Shape Layer de verdade, não máscara), já que a maioria das
-      camadas de PSD é raster e não carrega vetor nativo no AE.
-      "Create Shapes from Vector Layer" vira só a primeira tentativa,
-      usada apenas quando a camada realmente tem dado vetorial.
+    - 4.0.0: removida qualquer tentativa de disparar o Auto-trace via
+      script (sempre abriria diálogo nativo, o que não é desejado).
+      Camada raster agora só é convertida se já tiver máscaras.
+    - 3.0.0: layer.autoTrace() não existe na API de script do AE.
+      Troca para o fluxo real: comando nativo Auto-trace (gera
+      máscaras) + conversão de máscara em Shape Layer via código +
+      separação em camadas.
+    - 2.0.0: tentativa (equivocada) de usar layer.autoTrace().
     - 1.0.1: tenta múltiplos nomes/IDs de comando para "Create Shapes
       from Vector Layer" e mostra debug detalhado quando a conversão falha.
 */
@@ -105,16 +116,59 @@
         return null;
     }
 
-    // --- tentativa 2: autoTrace() — funciona em qualquer raster, gera Shape Layer real ---
-    function tryAutoTrace(layer, dbg) {
-        try {
-            var traced = layer.autoTrace();
-            if (traced instanceof ShapeLayer) return traced;
-            dbg.autoTraceRetornouOutraCoisa = true;
-        } catch (e) {
-            dbg.erroAutoTrace = e.toString();
+    // --- copia posição/âncora/escala/rotação/opacidade de uma camada para outra ---
+    function copyTransform(fromLayer, toLayer) {
+        var fromT = fromLayer.property("ADBE Transform Group");
+        var toT = toLayer.property("ADBE Transform Group");
+        var props = ["ADBE Anchor Point", "ADBE Position", "ADBE Scale", "ADBE Rotation", "ADBE Opacity"];
+        for (var p = 0; p < props.length; p++) {
+            try {
+                var fp = fromT.property(props[p]);
+                var tp = toT.property(props[p]);
+                if (fp && tp) tp.setValue(fp.value);
+            } catch (e) {}
         }
-        return null;
+    }
+
+    // --- converte as máscaras de uma camada em um Shape Layer novo ---
+    function masksToShapeLayer(sourceLayer) {
+        var maskGroup = sourceLayer.property("ADBE Mask Parade");
+        if (!maskGroup || maskGroup.numProperties === 0) return null;
+
+        var shapeLayer = comp.layers.addShape();
+        shapeLayer.name = sourceLayer.name + " Shapes";
+        copyTransform(sourceLayer, shapeLayer);
+
+        var rootContents = shapeLayer.property("ADBE Root Vectors Group");
+
+        for (var i = 1; i <= maskGroup.numProperties; i++) {
+            var mask = maskGroup.property(i);
+            var shapeVal = mask.property("ADBE Mask Shape").value;
+
+            var group = rootContents.addProperty("ADBE Vector Group");
+            group.name = mask.name;
+            var gc = group.property("ADBE Vectors Group");
+            var pathGroup = gc.addProperty("ADBE Vector Shape - Group");
+            pathGroup.property("ADBE Vector Shape").setValue(shapeVal);
+            gc.addProperty("ADBE Vector Graphic - Fill");
+        }
+
+        // limpa as máscaras da camada original, já convertidas
+        for (var j = maskGroup.numProperties; j >= 1; j--) {
+            try { maskGroup.property(j).remove(); } catch (e) {}
+        }
+
+        return shapeLayer;
+    }
+
+    // --- camadas raster: usa máscaras já existentes (rode Auto-trace manualmente antes) ---
+    function convertRasterToShapes(layer, dbg) {
+        var maskGroup = layer.property("ADBE Mask Parade");
+        if (!maskGroup || maskGroup.numProperties === 0) {
+            dbg.semMascaras = true;
+            return null;
+        }
+        return masksToShapeLayer(layer);
     }
 
     var camadasQuebradas = 0;
@@ -135,7 +189,7 @@
         } else if (layer instanceof AVLayer && layer.source) {
             var novoShapeLayer = tryCreateShapesFromVector(layer);
             var dbg = {};
-            if (!novoShapeLayer) novoShapeLayer = tryAutoTrace(layer, dbg);
+            if (!novoShapeLayer) novoShapeLayer = convertRasterToShapes(layer, dbg);
 
             if (novoShapeLayer) {
                 psdConvertidos++;
@@ -158,8 +212,8 @@
 
     if (falhasConversao > 0) {
         msg += "\n\nFalhas na conversão: " + falhasConversao;
-        if (primeiroDebug && primeiroDebug.erroAutoTrace) {
-            msg += "\nErro autoTrace: " + primeiroDebug.erroAutoTrace;
+        if (primeiroDebug && primeiroDebug.semMascaras) {
+            msg += "\n(camada raster sem máscaras — rode Layer > Auto-trace manualmente antes e execute o script de novo)";
         }
     }
 
