@@ -1,18 +1,26 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 1.0.1
+    Version: 2.0.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: separa cada grupo (objeto) do Contents em
       uma camada de shape individual.
-    - Se for camada de footage (ex.: layer de PSD/AI com dado vetorial):
-      tenta converter via "Create Shapes from Vector Layer" e, em
-      seguida, separa o resultado em camadas individuais também.
+    - Se for camada de footage raster (ex.: layer de PSD): usa
+      layer.autoTrace() para gerar um Shape Layer real (não máscara) a
+      partir do alfa da imagem, e separa o resultado em camadas.
+    - Se a camada tiver vetor nativo (PSD/AI importado como vetor):
+      tenta primeiro "Create Shapes from Vector Layer" (mais fiel ao
+      desenho original) antes de cair no autoTrace.
 
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 2.0.0: troca a estratégia principal para layer.autoTrace()
+      (gera Shape Layer de verdade, não máscara), já que a maioria das
+      camadas de PSD é raster e não carrega vetor nativo no AE.
+      "Create Shapes from Vector Layer" vira só a primeira tentativa,
+      usada apenas quando a camada realmente tem dado vetorial.
     - 1.0.1: tenta múltiplos nomes/IDs de comando para "Create Shapes
       from Vector Layer" e mostra debug detalhado quando a conversão falha.
 */
@@ -28,7 +36,7 @@
 
     var targetLayers = comp.selectedLayers;
     if (targetLayers.length === 0) {
-        alert("Selecione as camadas (shape layers e/ou camadas de PSD com vetor).");
+        alert("Selecione as camadas (shape layers e/ou camadas de PSD).");
         app.endUndoGroup();
         return;
     }
@@ -67,12 +75,8 @@
         return n;
     }
 
-    // IDs conhecidos do comando "Create Shapes from Vector Layer" em diferentes
-    // versões/idiomas do After Effects (o findMenuCommandId por nome nem sempre resolve).
-    var FALLBACK_CMD_IDS = [2649, 2665, 3628];
-
-    // --- tenta rodar "Create Shapes from Vector Layer" na camada isolada ---
-    function convertToShapes(layer, dbg) {
+    // --- tentativa 1: comando nativo, só funciona com vetor nativo real ---
+    function tryCreateShapesFromVector(layer) {
         for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
         layer.selected = true;
 
@@ -81,32 +85,34 @@
             "Criar Formas a Partir de Camada de Vetor",
             "Criar Formas a Partir da Camada Vetorial"
         ];
-
         var cmdId = 0;
         for (var n = 0; n < nomesComando.length; n++) {
             cmdId = app.findMenuCommandId(nomesComando[n]);
             if (cmdId) break;
         }
-        dbg.foundByName = !!cmdId;
+        if (!cmdId) return null;
 
-        var idsParaTentar = cmdId ? [cmdId] : FALLBACK_CMD_IDS;
-        dbg.idsTentados = idsParaTentar.join(",");
+        try {
+            app.executeCommand(cmdId);
+        } catch (e) {
+            return null;
+        }
 
-        for (var k = 0; k < idsParaTentar.length; k++) {
-            try {
-                app.executeCommand(idsParaTentar[k]);
-            } catch (e) {
-                dbg.erro = e.toString();
-                continue;
-            }
-            var sel = comp.selectedLayers;
-            dbg.selApos = sel.length;
-            for (var s = 0; s < sel.length; s++) {
-                if (sel[s] instanceof ShapeLayer) {
-                    dbg.cmdIdUsado = idsParaTentar[k];
-                    return sel[s];
-                }
-            }
+        var sel = comp.selectedLayers;
+        for (var s = 0; s < sel.length; s++) {
+            if (sel[s] instanceof ShapeLayer) return sel[s];
+        }
+        return null;
+    }
+
+    // --- tentativa 2: autoTrace() — funciona em qualquer raster, gera Shape Layer real ---
+    function tryAutoTrace(layer, dbg) {
+        try {
+            var traced = layer.autoTrace();
+            if (traced instanceof ShapeLayer) return traced;
+            dbg.autoTraceRetornouOutraCoisa = true;
+        } catch (e) {
+            dbg.erroAutoTrace = e.toString();
         }
         return null;
     }
@@ -127,8 +133,10 @@
                 gruposSeparados += qtd;
             }
         } else if (layer instanceof AVLayer && layer.source) {
+            var novoShapeLayer = tryCreateShapesFromVector(layer);
             var dbg = {};
-            var novoShapeLayer = convertToShapes(layer, dbg);
+            if (!novoShapeLayer) novoShapeLayer = tryAutoTrace(layer, dbg);
+
             if (novoShapeLayer) {
                 psdConvertidos++;
                 var qtd2 = splitShapeLayer(novoShapeLayer);
@@ -149,13 +157,10 @@
         "Objetos separados em camadas: " + gruposSeparados;
 
     if (falhasConversao > 0) {
-        msg += "\n\nFalhas na conversão PSD → Shape: " + falhasConversao +
-            "\n\n[debug 1ª falha]" +
-            "\nComando achado pelo nome: " + (primeiroDebug.foundByName ? "sim" : "não") +
-            "\nIDs tentados: " + primeiroDebug.idsTentados +
-            "\nID usado com sucesso: " + (primeiroDebug.cmdIdUsado || "nenhum") +
-            "\nCamadas selecionadas após comando: " + (primeiroDebug.selApos !== undefined ? primeiroDebug.selApos : "n/a") +
-            (primeiroDebug.erro ? "\nErro: " + primeiroDebug.erro : "");
+        msg += "\n\nFalhas na conversão: " + falhasConversao;
+        if (primeiroDebug && primeiroDebug.erroAutoTrace) {
+            msg += "\nErro autoTrace: " + primeiroDebug.erroAutoTrace;
+        }
     }
 
     alert(msg);
