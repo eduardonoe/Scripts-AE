@@ -1,32 +1,33 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 4.0.0
+    Version: 5.0.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
       em uma camada de shape individual. 100% silencioso.
-    - Se for camada raster (ex.: layer de PSD) e já tiver máscaras
-      (rode Layer > Auto-trace manualmente antes, se ainda não tiver):
-      converte cada máscara em um grupo dentro de um Shape Layer novo
-      (path de máscara e path de shape são compatíveis) e separa esse
-      Shape Layer em camadas individuais. 100% silencioso, nenhuma
-      janela é aberta pelo script.
+    - Se for camada raster (ex.: layer de PSD):
+        - se já tiver máscaras, usa elas direto;
+        - se não tiver, dispara o Auto-trace nativo do AE (abre o
+          diálogo padrão para você ajustar tolerância e confirmar —
+          não existe forma headless de fazer isso via script no AE).
+      Depois converte cada máscara em um grupo dentro de um Shape
+      Layer novo (path de máscara e path de shape são compatíveis) e
+      separa esse Shape Layer em camadas individuais.
     - Se a camada já tiver vetor nativo (raro em PSD/AI importado como
       vetor de verdade): tenta primeiro "Create Shapes from Vector
-      Layer" antes de checar as máscaras.
-
-    IMPORTANTE: o script NUNCA abre a janela do Auto-trace. Isso não é
-    possível via script no AE (não existe API headless para isso) — o
-    comando nativo sempre exige o diálogo. Por isso, camadas raster
-    sem máscara alguma são puladas (contam como "falha").
+      Layer" antes de checar/gerar máscaras.
 
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 5.0.0: volta a disparar o Auto-trace nativo (com diálogo) quando
+      a camada raster ainda não tem máscara, a pedido do usuário —
+      preferível a exigir passo manual antes de rodar o script.
     - 4.0.0: removida qualquer tentativa de disparar o Auto-trace via
-      script (sempre abriria diálogo nativo, o que não é desejado).
-      Camada raster agora só é convertida se já tiver máscaras.
+      script (sempre abriria diálogo nativo, o que não era desejado
+      naquele momento). Camada raster só era convertida se já tivesse
+      máscaras.
     - 3.0.0: layer.autoTrace() não existe na API de script do AE.
       Troca para o fluxo real: comando nativo Auto-trace (gera
       máscaras) + conversão de máscara em Shape Layer via código +
@@ -161,14 +162,54 @@
         return shapeLayer;
     }
 
-    // --- camadas raster: usa máscaras já existentes (rode Auto-trace manualmente antes) ---
+    // --- roda o comando nativo Auto-trace (abre o diálogo padrão do AE) ---
+    function runAutoTraceCommand(layer) {
+        for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
+        layer.selected = true;
+
+        var nomesComando = ["Auto-trace...", "Auto-trace…", "Autotraçar...", "Autotraçado..."];
+        var cmdId = 0;
+        for (var n = 0; n < nomesComando.length; n++) {
+            cmdId = app.findMenuCommandId(nomesComando[n]);
+            if (cmdId) break;
+        }
+        if (!cmdId) return false;
+
+        try {
+            app.executeCommand(cmdId);
+        } catch (e) {
+            return false;
+        }
+        return true;
+    }
+
+    // --- camadas raster: usa máscaras existentes ou dispara o Auto-trace (abre diálogo) ---
     function convertRasterToShapes(layer, dbg) {
         var maskGroup = layer.property("ADBE Mask Parade");
-        if (!maskGroup || maskGroup.numProperties === 0) {
-            dbg.semMascaras = true;
+        var camadaComMascaras = (maskGroup && maskGroup.numProperties > 0) ? layer : null;
+
+        if (!camadaComMascaras) {
+            var ok = runAutoTraceCommand(layer);
+            if (!ok) {
+                dbg.autoTraceCmdNaoEncontrado = true;
+                return null;
+            }
+            var sel = comp.selectedLayers;
+            for (var s = 0; s < sel.length; s++) {
+                var mg = sel[s].property("ADBE Mask Parade");
+                if (mg && mg.numProperties > 0) {
+                    camadaComMascaras = sel[s];
+                    break;
+                }
+            }
+        }
+
+        if (!camadaComMascaras) {
+            dbg.semMascarasAposAutoTrace = true;
             return null;
         }
-        return masksToShapeLayer(layer);
+
+        return masksToShapeLayer(camadaComMascaras);
     }
 
     var camadasQuebradas = 0;
@@ -212,8 +253,9 @@
 
     if (falhasConversao > 0) {
         msg += "\n\nFalhas na conversão: " + falhasConversao;
-        if (primeiroDebug && primeiroDebug.semMascaras) {
-            msg += "\n(camada raster sem máscaras — rode Layer > Auto-trace manualmente antes e execute o script de novo)";
+        if (primeiroDebug) {
+            if (primeiroDebug.autoTraceCmdNaoEncontrado) msg += "\n(comando Auto-trace não encontrado no menu)";
+            if (primeiroDebug.semMascarasAposAutoTrace) msg += "\n(nenhuma máscara gerada — o diálogo do Auto-trace pode ter sido cancelado)";
         }
     }
 
