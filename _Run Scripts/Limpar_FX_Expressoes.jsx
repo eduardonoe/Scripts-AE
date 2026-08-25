@@ -1,7 +1,7 @@
 /*
     LIMPAR EFEITOS, EXPRESSÕES E LAYER STYLES
     After Effects JSX
-    Version: 1.3.1
+    Version: 1.3.2
 
     Remove todos os efeitos, todas as expressões e todos os layer styles
     das camadas selecionadas, de uma só vez, 100% silencioso (sem nenhuma
@@ -33,6 +33,9 @@
     Selecione os layers e execute o script.
 
     Changelog:
+    - 1.3.2: aviso de fallback passa a incluir um mapa do submenu Layer
+      Styles, obtido só por consulta de nome (sem executar nada), para
+      localizar o "Remove All" sem sondagem às cegas.
     - 1.3.1: corrige a verificação da sondagem, que invalidava até o
       comando certo. O grupo "ADBE Layer Styles" existe SEMPRE (10 slots
       fixos), então checar a presença do grupo dava sempre "ainda tem
@@ -195,6 +198,24 @@
         return false;
     }
 
+    // Só CONSULTA os IDs pelo nome (não executa nada) para mapear onde fica o submenu
+    // Layer Styles. Vários desses nomes são exclusivos desse submenu, então o mapa revela
+    // a vizinhança exata do "Remove All" sem precisar sondar às cegas.
+    function mapearSubmenuLayerStyles() {
+        var nomes = [
+            "Drop Shadow", "Inner Shadow", "Outer Glow", "Inner Glow",
+            "Bevel and Emboss", "Satin", "Color Overlay", "Gradient Overlay", "Stroke",
+            "Show All", "Remove All", "Convert to Editable Styles", "Layer Styles"
+        ];
+        var linhas = [];
+        for (var i = 0; i < nomes.length; i++) {
+            var id = 0;
+            try { id = app.findMenuCommandId(nomes[i]); } catch (e) {}
+            linhas.push(nomes[i] + " = " + (id ? id : "-"));
+        }
+        return linhas.join("\n");
+    }
+
     // Plano B: desliga cada style (o grupo continua listado, mas nada renderiza).
     function desligarStyles(layer) {
         var n = 0;
@@ -272,7 +293,8 @@
             "continua listado na timeline.\n\n" +
             "[diagnóstico]\n" +
             "Âncoras encontradas: " + (diag.ancorasAchadas.length ? diag.ancorasAchadas.join(", ") : "nenhuma") + "\n" +
-            "IDs testados: " + diag.candidatosTestados
+            "IDs testados: " + diag.candidatosTestados + "\n\n" +
+            "[mapa do submenu Layer Styles]\n" + mapearSubmenuLayerStyles()
         );
     }
 })();
