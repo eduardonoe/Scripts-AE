@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 6.2.0
+    Version: 6.3.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
@@ -22,10 +22,16 @@
       linhas de cima pra baixo (para logos/desenhos com elementos em
       alturas diferentes) e, dentro da mesma linha, esquerda pra
       direita (ordem natural de leitura para texto).
+    - O anchor point de cada camada resultante é centralizado no
+      próprio objeto, sem deslocar nada na tela.
 
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 6.3.0: anchor point de cada camada resultante é centralizado no
+      próprio objeto, com a posição compensada (considerando escala)
+      para nada sair do lugar. Camadas com keyframe ou expressão em
+      Anchor Point/Position são preservadas intactas.
     - 6.2.0: furo deixa de usar Merge Paths (match name do modo varia
       entre versões do AE e a direção do Subtract depende da ordem na
       pilha, então o buraco não era aplicado). Agora usa Fill Rule =
@@ -98,6 +104,37 @@
         }
     }
 
+    // --- centraliza o anchor point no objeto, compensando a posição para nada se mover ---
+    function centerAnchorPoint(layer) {
+        try {
+            var transform = layer.property("ADBE Transform Group");
+            var anchorProp = transform.property("ADBE Anchor Point");
+            var posProp = transform.property("ADBE Position");
+
+            // não mexe se houver keyframe/expressão (evita quebrar animação existente)
+            if (anchorProp.numKeys > 0 || posProp.numKeys > 0) return;
+            if (anchorProp.expressionEnabled || posProp.expressionEnabled) return;
+
+            var rect = layer.sourceRectAtTime(comp.time, false);
+            var novoAnchor = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+
+            var anchorAtual = anchorProp.value;
+            var posAtual = posProp.value;
+            var escala = transform.property("ADBE Scale").value;
+
+            var dx = (novoAnchor[0] - anchorAtual[0]) * (escala[0] / 100);
+            var dy = (novoAnchor[1] - anchorAtual[1]) * (escala[1] / 100);
+
+            if (anchorAtual.length > 2) {
+                anchorProp.setValue([novoAnchor[0], novoAnchor[1], anchorAtual[2]]);
+                posProp.setValue([posAtual[0] + dx, posAtual[1] + dy, posAtual[2]]);
+            } else {
+                anchorProp.setValue(novoAnchor);
+                posProp.setValue([posAtual[0] + dx, posAtual[1] + dy]);
+            }
+        } catch (e) {}
+    }
+
     // --- reordena camadas na stack: linhas de cima pra baixo, e dentro da linha, esquerda pra direita ---
     function organizeLayersByPosition(layerArr) {
         if (layerArr.length <= 1) return;
@@ -151,6 +188,8 @@
         }
         layer.name = names[0];
         novasCamadas.push(layer);
+
+        for (var k = 0; k < novasCamadas.length; k++) centerAnchorPoint(novasCamadas[k]);
 
         organizeLayersByPosition(novasCamadas);
 
