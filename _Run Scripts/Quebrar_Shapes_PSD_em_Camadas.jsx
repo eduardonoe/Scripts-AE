@@ -1,7 +1,7 @@
 /*
     QUEBRAR SHAPES / CONVERTER PSD EM SHAPES — SEPARAR EM CAMADAS
     After Effects JSX
-    Version: 6.1.0
+    Version: 6.2.0
 
     Para cada camada selecionada:
     - Se já for Shape Layer: só separa cada grupo (objeto) do Contents
@@ -26,6 +26,11 @@
     Selecione as camadas e execute o script.
 
     Changelog:
+    - 6.2.0: furo deixa de usar Merge Paths (match name do modo varia
+      entre versões do AE e a direção do Subtract depende da ordem na
+      pilha, então o buraco não era aplicado). Agora usa Fill Rule =
+      Even-Odd no preenchimento, que trata contornos aninhados como
+      fontes/SVG fazem — o miolo vira buraco automaticamente.
     - 6.1.0: corrige dois bugs graves. (1) MergePathsMode não existe no
       ExtendScript do AE — o setValue lançava exceção que abortava o
       script inteiro (grupo ficava sem Fill e nada era separado em
@@ -338,17 +343,16 @@
                 pathGroup.property("ADBE Vector Shape").setValue(masksDoObjeto[i].property("ADBE Mask Shape").value);
             }
 
-            // se houver mais de uma máscara no objeto, funde os paths preservando o(s) furo(s).
-            // MergePathsMode não existe como enum no ExtendScript do AE — usar inteiro:
-            // 1=Merge, 2=Add, 3=Subtract, 4=Intersect, 5=Exclude Intersections
+            // O furo NÃO é feito com Merge Paths (o match name do modo varia entre versões e
+            // a direção do Subtract depende da ordem na pilha). Usa-se Fill Rule = Even-Odd,
+            // que é como fontes/SVG tratam contornos aninhados: um path dentro de outro vira
+            // buraco automaticamente. 1 = Non-Zero Winding, 2 = Even-Odd.
+            var fill = gc.addProperty("ADBE Vector Graphic - Fill");
             if (masksDoObjeto.length > 1) {
-                try {
-                    var merge = gc.addProperty("ADBE Vector Filter - Merge");
-                    merge.property("ADBE Vector Merge Types").setValue(3);
-                } catch (e) {}
+                var regra = fill.property("ADBE Vector Fill Rule");
+                if (!regra) { try { regra = fill.property(2); } catch (e) {} }
+                if (regra) { try { regra.setValue(2); } catch (e) {} }
             }
-
-            try { gc.addProperty("ADBE Vector Graphic - Fill"); } catch (e) {}
         }
 
         // limpa as máscaras da camada original, já convertidas
