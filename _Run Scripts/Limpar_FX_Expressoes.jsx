@@ -1,7 +1,7 @@
 /*
     LIMPAR EFEITOS, EXPRESSÕES E LAYER STYLES
     After Effects JSX
-    Version: 1.3.2
+    Version: 1.4.0
 
     Remove todos os efeitos, todas as expressões e todos os layer styles
     das camadas selecionadas, de uma só vez, 100% silencioso (sem nenhuma
@@ -33,6 +33,11 @@
     Selecione os layers e execute o script.
 
     Changelog:
+    - 1.4.0: o mapa revelou que os styles individuais formam um bloco
+      contíguo em 9000..9008 (Drop Shadow..Stroke), e que "Show All"=3743
+      e "Remove All"=2072 pertencem a OUTROS menus — 2072 é o Effect >
+      Remove All, origem da ambiguidade. A sondagem passa a partir do fim
+      desse bloco (9009+), que é onde o Remove All do submenu deve estar.
     - 1.3.2: aviso de fallback passa a incluir um mapa do submenu Layer
       Styles, obtido só por consulta de nome (sem executar nada), para
       localizar o "Remove All" sem sondagem às cegas.
@@ -173,25 +178,51 @@
             }
         }
 
-        // 3) sondagem ancorada em comandos exclusivos do submenu Layer Styles.
-        //    Ordem do submenu: Convert to Editable Styles, Show All, Remove All, ...
-        var ancoras = ["Convert to Editable Styles", "Show All", "Converter em Estilos Editáveis", "Mostrar tudo"];
-        var offsets = [1, 2, 3, 4, -1, -2, -3];
         var jaTestados = {};
 
+        function tentar(candidato) {
+            if (!candidato || candidato <= 0 || jaTestados[candidato]) return false;
+            jaTestados[candidato] = true;
+            diag.candidatosTestados++;
+            if (executarEVerificar(candidato, alvos)) {
+                saveCmdId(candidato);
+                return true;
+            }
+            return false;
+        }
+
+        // 3) sondagem ancorada no BLOCO dos styles individuais.
+        //    Mapeado na prática: Drop Shadow=9000 ... Stroke=9008, um bloco contíguo.
+        //    O "Remove All" do submenu fica logo em seguida (9009/9010), não perto do
+        //    "Show All"=3743, que na verdade pertence a outro menu.
+        var estilos = [
+            "Drop Shadow", "Inner Shadow", "Outer Glow", "Inner Glow",
+            "Bevel and Emboss", "Satin", "Color Overlay", "Gradient Overlay", "Stroke"
+        ];
+        var min = 0, max = 0;
+        for (var s = 0; s < estilos.length; s++) {
+            var id = app.findMenuCommandId(estilos[s]);
+            if (!id) continue;
+            if (!min || id < min) min = id;
+            if (id > max) max = id;
+        }
+        if (max) {
+            diag.ancorasAchadas.push("bloco styles=" + min + ".." + max);
+            var aposBloco = [max + 1, max + 2, max + 3, max + 4, min - 1, min - 2];
+            for (var b = 0; b < aposBloco.length; b++) {
+                if (tentar(aposBloco[b])) return true;
+            }
+        }
+
+        // 4) por último, a vizinhança do submenu "Layer Styles" / "Convert to Editable Styles"
+        var ancoras = ["Layer Styles", "Convert to Editable Styles", "Converter em Estilos Editáveis"];
+        var offsets = [1, 2, 3, 4, 5, -1, -2];
         for (var a = 0; a < ancoras.length; a++) {
             var base = app.findMenuCommandId(ancoras[a]);
             if (!base) continue;
             diag.ancorasAchadas.push(ancoras[a] + "=" + base);
             for (var o = 0; o < offsets.length; o++) {
-                var candidato = base + offsets[o];
-                if (candidato <= 0 || jaTestados[candidato]) continue;
-                jaTestados[candidato] = true;
-                diag.candidatosTestados++;
-                if (executarEVerificar(candidato, alvos)) {
-                    saveCmdId(candidato);
-                    return true;
-                }
+                if (tentar(base + offsets[o])) return true;
             }
         }
 
