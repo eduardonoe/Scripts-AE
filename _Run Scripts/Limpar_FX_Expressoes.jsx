@@ -1,50 +1,61 @@
 /*
     LIMPAR EFEITOS, EXPRESSÕES E LAYER STYLES
     After Effects JSX
-    Version: 1.2.0
+    Version: 1.3.0
 
     Remove todos os efeitos, todas as expressões e todos os layer styles
     das camadas selecionadas, de uma só vez, 100% silencioso (sem nenhuma
-    janela/alerta).
+    janela/alerta) quando tudo funciona.
 
     Keyframes das propriedades padrão (Transform, texto, shape) são
     preservados — só somem keyframes que estavam dentro de um efeito ou
     layer style removido.
 
-    NOTA SOBRE LAYER STYLES: o grupo "Layer Styles" é um NAMED_GROUP com
-    10 slots fixos, então o AE NÃO permite remover um style pelo script
-    (remove() lança "parent is not an INDEXED_GROUP"). A única remoção
-    real é o comando nativo Layer > Layer Styles > Remove All, usado aqui
-    com a seleção montada por código. Se esse comando não puder ser
-    resolvido, o script desliga todos os styles como plano B — o
-    resultado visual é o mesmo, mas o grupo continua listado.
+    COMO OS LAYER STYLES SÃO REMOVIDOS
+    O grupo "Layer Styles" é um NAMED_GROUP com 10 slots fixos, então o AE
+    proíbe remove() por script ("parent is not an INDEXED_GROUP"). A única
+    remoção real é o comando nativo Layer > Layer Styles > Remove All, que
+    não pode ser achado pelo nome porque "Remove All" é exatamente o mesmo
+    texto do Effect > Remove All.
+
+    Para resolver, o script descobre o ID do comando assim:
+      1. usa o ID já descoberto numa execução anterior (salvo em app.settings);
+      2. tenta pelo nome, caso alguma versão resolva corretamente;
+      3. sonda poucos IDs vizinhos a comandos que SÓ existem no submenu
+         Layer Styles ("Convert to Editable Styles" e "Show All").
+    Cada tentativa é verificada e, se não tiver removido os styles, é
+    desfeita na hora (Undo). Ao acertar, o ID é salvo e as próximas
+    execuções vão direto nele.
+
+    Plano B, se nada funcionar: desliga todos os styles (mesmo resultado
+    visual, mas o grupo continua listado) e avisa uma única vez.
 
     Selecione os layers e execute o script.
 
     Changelog:
-    - 1.2.0: layer styles passam a ser removidos pelo comando nativo
-      "Remove All" (com verificação), já que remove() por script é
-      proibido nesse grupo. Plano B: desligar todos os styles.
-    - 1.1.1: a remoção de layer styles falhava em silêncio (try/catch
-      engolia o motivo). Passa a diagnosticar o erro.
+    - 1.3.0: descoberta automática do ID do comando "Remove All" de Layer
+      Styles, ancorada em comandos exclusivos daquele submenu, com
+      verificação, undo automático em caso de erro e cache do ID.
+    - 1.2.0: layer styles passam a ser removidos pelo comando nativo, já
+      que remove() por script é proibido nesse grupo.
+    - 1.1.1: passa a diagnosticar a falha em vez de engoli-la no try/catch.
     - 1.1.0: remove também os layer styles (Color Overlay, Drop Shadow,
       Stroke, etc.), preservando o Blending Options do grupo.
     - 1.0.1: removido alerta final e alertas de validação (execução silenciosa).
 */
 (function limparFxExpressoes() {
-    app.beginUndoGroup("Limpar Efeitos, Expressões e Layer Styles");
-
     var comp = app.project.activeItem;
-    if (!(comp instanceof CompItem)) {
-        app.endUndoGroup();
-        return;
-    }
+    if (!(comp instanceof CompItem)) return;
 
     var layers = comp.selectedLayers;
-    if (layers.length === 0) {
-        app.endUndoGroup();
-        return;
-    }
+    if (layers.length === 0) return;
+    layers = layers.slice(0);
+
+    var UNDO_CMD_ID = 16; // Edit > Undo
+    var SETTINGS_SECTION = "LimparFX_Expressoes";
+    var SETTINGS_KEY = "layerStylesRemoveAllId";
+
+    // ---------- helpers ----------
 
     function removeExpressionsRecursive(propGroup) {
         var count = 0;
@@ -77,11 +88,89 @@
         }
     }
 
+    function contarComStyles(layerArr) {
+        var n = 0;
+        for (var i = 0; i < layerArr.length; i++) {
+            if (getStylesGroup(layerArr[i])) n++;
+        }
+        return n;
+    }
+
     function selecionar(layerArr) {
         for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
         for (var j = 0; j < layerArr.length; j++) {
             try { layerArr[j].selected = true; } catch (e) {}
         }
+    }
+
+    function getSavedCmdId() {
+        try {
+            if (app.settings.haveSetting(SETTINGS_SECTION, SETTINGS_KEY)) {
+                var v = parseInt(app.settings.getSetting(SETTINGS_SECTION, SETTINGS_KEY), 10);
+                if (!isNaN(v) && v > 0) return v;
+            }
+        } catch (e) {}
+        return 0;
+    }
+
+    function saveCmdId(id) {
+        try { app.settings.saveSetting(SETTINGS_SECTION, SETTINGS_KEY, String(id)); } catch (e) {}
+    }
+
+    // Executa um ID candidato e confirma pelo resultado. Se não removeu os
+    // styles, desfaz na hora — assim um comando errado não deixa rastro.
+    function executarEVerificar(cmdId, alvos) {
+        if (!cmdId) return false;
+        if (contarComStyles(alvos) === 0) return true;
+
+        try {
+            app.executeCommand(cmdId);
+        } catch (e) {
+            return false;
+        }
+
+        if (contarComStyles(alvos) === 0) return true;
+
+        try { app.executeCommand(UNDO_CMD_ID); } catch (e) {}
+        return false;
+    }
+
+    function removerLayerStyles(alvos) {
+        // 1) ID já descoberto antes
+        var salvo = getSavedCmdId();
+        if (salvo && executarEVerificar(salvo, alvos)) return true;
+
+        // 2) pelo nome (algumas versões podem resolver certo)
+        var nomes = ["Remove All", "Remover tudo", "Remover Tudo"];
+        for (var n = 0; n < nomes.length; n++) {
+            var porNome = app.findMenuCommandId(nomes[n]);
+            if (porNome && executarEVerificar(porNome, alvos)) {
+                saveCmdId(porNome);
+                return true;
+            }
+        }
+
+        // 3) sondagem ancorada em comandos exclusivos do submenu Layer Styles.
+        //    Ordem do submenu: Convert to Editable Styles, Show All, Remove All, ...
+        var ancoras = ["Convert to Editable Styles", "Show All", "Converter em Estilos Editáveis", "Mostrar tudo"];
+        var offsets = [1, 2, 3, -1, -2, -3];
+        var jaTestados = {};
+
+        for (var a = 0; a < ancoras.length; a++) {
+            var base = app.findMenuCommandId(ancoras[a]);
+            if (!base) continue;
+            for (var o = 0; o < offsets.length; o++) {
+                var candidato = base + offsets[o];
+                if (candidato <= 0 || jaTestados[candidato]) continue;
+                jaTestados[candidato] = true;
+                if (executarEVerificar(candidato, alvos)) {
+                    saveCmdId(candidato);
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     // Plano B: desliga cada style (o grupo continua listado, mas nada renderiza).
@@ -102,28 +191,30 @@
         return n;
     }
 
-    var expressionsRemoved = 0;
-    var effectsRemoved = 0;
+    // ---------- 1) efeitos e expressões ----------
+
+    app.beginUndoGroup("Limpar Efeitos e Expressões");
 
     for (var i = 0; i < layers.length; i++) {
         var layer = layers[i];
 
-        expressionsRemoved += removeExpressionsRecursive(layer);
+        removeExpressionsRecursive(layer);
 
         try {
             var fx = layer.property("ADBE Effect Parade");
             if (fx) {
                 for (var e = fx.numProperties; e >= 1; e--) {
-                    try {
-                        fx.property(e).remove();
-                        effectsRemoved++;
-                    } catch (err) {}
+                    try { fx.property(e).remove(); } catch (err) {}
                 }
             }
         } catch (err) {}
     }
 
-    // --- layer styles: só o comando nativo remove de verdade ---
+    app.endUndoGroup();
+
+    // ---------- 2) layer styles ----------
+    // Fora de undo group próprio: a sondagem precisa poder chamar Undo.
+
     var comStyles = [];
     for (var i = 0; i < layers.length; i++) {
         if (getStylesGroup(layers[i])) comStyles.push(layers[i]);
@@ -133,43 +224,26 @@
     var desligadosFallback = 0;
 
     if (comStyles.length > 0) {
-        var selecaoOriginal = layers.slice(0);
         selecionar(comStyles);
-
-        var nomes = ["Remove All", "Remover tudo", "Remover Tudo"];
-        for (var n = 0; n < nomes.length; n++) {
-            var cmdId = app.findMenuCommandId(nomes[n]);
-            if (!cmdId) continue;
-            try {
-                app.executeCommand(cmdId);
-            } catch (e) {
-                continue;
-            }
-            var aindaTem = false;
-            for (var c = 0; c < comStyles.length; c++) {
-                if (getStylesGroup(comStyles[c])) { aindaTem = true; break; }
-            }
-            if (!aindaTem) { stylesRemovidos = true; break; }
-        }
+        stylesRemovidos = removerLayerStyles(comStyles);
 
         if (!stylesRemovidos) {
+            app.beginUndoGroup("Desligar Layer Styles");
             for (var c = 0; c < comStyles.length; c++) {
                 desligadosFallback += desligarStyles(comStyles[c]);
             }
+            app.endUndoGroup();
         }
 
-        selecionar(selecaoOriginal);
+        selecionar(layers);
     }
-
-    app.endUndoGroup();
 
     // Silencioso quando a remoção real acontece. Só avisa se caiu no plano B.
     if (comStyles.length > 0 && !stylesRemovidos) {
         alert(
             "Efeitos e expressões limpos.\n\n" +
-            "Os layer styles não puderam ser REMOVIDOS (o After Effects não permite isso via " +
-            "script; só pelo menu Layer > Layer Styles > Remove All, que não foi possível " +
-            "acionar aqui).\n\n" +
+            "Não foi possível localizar o comando nativo de remoção dos layer styles nesta " +
+            "versão do After Effects.\n\n" +
             "Como alternativa, todos os styles foram DESLIGADOS: " + desligadosFallback + " style(s) " +
             "em " + comStyles.length + " camada(s). Nada deles renderiza mais, mas o grupo " +
             "continua listado na timeline."
