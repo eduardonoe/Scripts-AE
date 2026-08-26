@@ -1,7 +1,7 @@
 /*
     FAUX 3D EXTRUSION RIG
     After Effects JSX
-    Version: 2.1.0
+    Version: 2.2.0
 
     Monta o rig de extrusão 3D falsa a partir de uma camada de TEXTO
     selecionada. Técnica do post do contentlab.cc ("How to create Faux 3D
@@ -57,6 +57,13 @@
     Selecione a(s) camada(s) de texto e execute o script.
 
     Changelog:
+    - 2.2.0: corrige o modo "caractere", que não empurrava a face — a
+      extrusão só crescia para longe dela. Faltava ancorar o "chão":
+      agora o corpo (shape layer) se move JUNTO com a face pela mesma
+      quantidade (mesmo mecanismo do modo "palavra"), usando como
+      referência o repeater da letra líder (a primeira, sempre a mais
+      adiantada). Essa combinação é o que faz a ponta mais distante da
+      extrusão ficar fixa e a face subir conforme a profundidade cresce.
     - 2.1.0: "Profundidade" aceita valor negativo, para inverter o sentido
       da extrusão sem mexer em "Direcao" — permite tanto um objeto que
       cresce "para o ar" (positiva) quanto um que parece emergir do chão
@@ -167,9 +174,30 @@
         "\n" +
         "value - [xOffset, yOffset];";
 
+    // Modo "caractere": a face é empurrada pelo repeater da letra LÍDER (a
+    // primeira, índice 0 — é sempre a mais adiantada, ver exprCopies). O
+    // corpo (EXPR_SHAPE) se move JUNTO com a face por essa mesma quantidade —
+    // é essa combinação que ancora o "chão" da extrusão (a ponta mais distante
+    // fica parada) e faz a face subir conforme a profundidade cresce, em vez
+    // de a extrusão crescer para longe de uma face parada.
+    var EXPR_TEXTO_CARACTERE =
+        "// FAUX 3D EXTRUSION - face empurrada pela extrusao da letra lider (indice 0)\n" +
+        "var shapeLayer = thisComp.layer(index + 1);\n" +
+        "var rep = shapeLayer.content(\"FauxExt_Lead\").content(\"Repeater 1\");\n" +
+        "var qtd = Math.max(0, rep.copies - 1);\n" +
+        "var repPos = rep.transform.position;\n" +
+        "\n" +
+        "var scaleX = shapeLayer.transform.scale[0] / 100;\n" +
+        "var scaleY = shapeLayer.transform.scale[1] / 100;\n" +
+        "\n" +
+        "var xOffset = repPos[0] * scaleX * qtd;\n" +
+        "var yOffset = repPos[1] * scaleY * qtd;\n" +
+        "\n" +
+        "value - [xOffset, yOffset];";
+
     var EXPR_SHAPE =
         "// FAUX 3D EXTRUSION - corpo\n" +
-        "// segue a camada de texto logo acima\n" +
+        "// segue a camada de texto logo acima (mesmo deslocamento, ancora o \"chao\")\n" +
         "thisComp.layer(index - 1).transform.position;";
 
     var EXPR_COR_CORPO = 'thisComp.layer(index - 1).effect("Cor Extrusao")("Color");';
@@ -263,6 +291,12 @@
         var n = grupos.length;
         var criados = 0;
         for (var k = 0; k < n; k++) {
+            // a letra líder (k=0, sempre a mais adiantada) precisa de nome fixo
+            // e previsível: é nela que a expressão da face vai buscar o offset.
+            if (k === 0) {
+                try { grupos[k].grupo.name = "FauxExt_Lead"; } catch (e) {}
+            }
+
             var gc = grupos[k].grupo.property("ADBE Vectors Group");
             if (!gc) continue;
             var rep;
@@ -469,6 +503,11 @@
 
         if (MODO === "caractere") {
             repeaterPorCaractere(shapeLayer);
+            // face empurrada pela letra líder + corpo acompanhando com o mesmo
+            // deslocamento: é isso que ancora o "chão" e faz a extrusão
+            // empurrar a face, em vez de crescer para longe dela
+            aplicarExpressao(textLayer, EXPR_TEXTO_CARACTERE);
+            aplicarExpressao(shapeLayer, EXPR_SHAPE);
         } else {
             repeaterUnico(shapeLayer);
             aplicarExpressao(textLayer, EXPR_TEXTO);
