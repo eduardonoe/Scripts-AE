@@ -1,7 +1,7 @@
 /*
     FAUX 3D EXTRUSION RIG
     After Effects JSX
-    Version: 2.2.0
+    Version: 3.0.0
 
     Monta o rig de extrusão 3D falsa a partir de uma camada de TEXTO
     selecionada. Técnica do post do contentlab.cc ("How to create Faux 3D
@@ -28,12 +28,17 @@
 
     DOIS MODOS (constante MODO)
       - "caractere" (padrão): um Repeater DENTRO de cada glifo, cada um com
-        seu atraso. É o que a referência mostra ("animate Copies and repeat
-        for every character"). A face é o próprio texto, que não se move,
-        então as expressões de compensação não são necessárias.
-      - "palavra": um Repeater único para o texto todo, mais as duas
-        expressões de compensação do post. A palavra inteira extruda junta,
-        sem escalonamento.
+        seu atraso. Cada letra ganha sua própria TAMPA (um subgrupo "Cap"
+        dentro dela mesma, com a geometria duplicada), empurrada pela
+        extrusão DAQUELA letra — nunca pela de outra. É por isso que cada
+        letra sobe exatamente na medida do que já extrudou, sem depender de
+        nenhuma "líder": não existe face compartilhada para travar todas na
+        mesma altura. O texto original (camada de TEXTO) fica apenas como
+        suporte dos controles — quem renderiza é só o shape layer.
+      - "palavra": um Repeater único para o texto todo, com o texto
+        funcionando como face de verdade (compensada por expressão) e o
+        corpo seguindo ele. A palavra inteira extruda junta, sem
+        escalonamento.
 
     SOBRE A DIREÇÃO: no After Effects o eixo Y é invertido (Y positivo é
     para BAIXO). O ângulo aqui já corrige isso: 0° cresce para cima, 90°
@@ -57,13 +62,17 @@
     Selecione a(s) camada(s) de texto e execute o script.
 
     Changelog:
-    - 2.2.0: corrige o modo "caractere", que não empurrava a face — a
-      extrusão só crescia para longe dela. Faltava ancorar o "chão":
-      agora o corpo (shape layer) se move JUNTO com a face pela mesma
-      quantidade (mesmo mecanismo do modo "palavra"), usando como
-      referência o repeater da letra líder (a primeira, sempre a mais
-      adiantada). Essa combinação é o que faz a ponta mais distante da
-      extrusão ficar fixa e a face subir conforme a profundidade cresce.
+    - 3.0.0: corrige o modo "caractere" de vez. A correção anterior (2.2.0)
+      empurrava a face inteira (uma única camada de texto) pela extrusão de
+      UMA letra "líder" — mas como todas as letras compartilhavam essa
+      mesma face rígida, as que ainda não tinham extrudado nada subiam
+      junto com as demais, ficando suspensas com um vão vazio embaixo
+      (exatamente o bug relatado). Correção real: a face deixa de ser a
+      camada de texto e passa a ser uma TAMPA por letra, dentro do próprio
+      shape layer — cada uma lida com o repeater DELA MESMA, então cada
+      letra só sobe na medida exata do que já extrudou. A camada de texto
+      vira só um suporte para os controles, sem renderizar nada.
+    - 2.2.0: (revertido) tentativa de empurrar a face inteira via letra líder.
     - 2.1.0: "Profundidade" aceita valor negativo, para inverter o sentido
       da extrusão sem mexer em "Direcao" — permite tanto um objeto que
       cresce "para o ar" (positiva) quanto um que parece emergir do chão
@@ -174,34 +183,29 @@
         "\n" +
         "value - [xOffset, yOffset];";
 
-    // Modo "caractere": a face é empurrada pelo repeater da letra LÍDER (a
-    // primeira, índice 0 — é sempre a mais adiantada, ver exprCopies). O
-    // corpo (EXPR_SHAPE) se move JUNTO com a face por essa mesma quantidade —
-    // é essa combinação que ancora o "chão" da extrusão (a ponta mais distante
-    // fica parada) e faz a face subir conforme a profundidade cresce, em vez
-    // de a extrusão crescer para longe de uma face parada.
-    var EXPR_TEXTO_CARACTERE =
-        "// FAUX 3D EXTRUSION - face empurrada pela extrusao da letra lider (indice 0)\n" +
-        "var shapeLayer = thisComp.layer(index + 1);\n" +
-        "var rep = shapeLayer.content(\"FauxExt_Lead\").content(\"Repeater 1\");\n" +
-        "var qtd = Math.max(0, rep.copies - 1);\n" +
-        "var repPos = rep.transform.position;\n" +
-        "\n" +
-        "var scaleX = shapeLayer.transform.scale[0] / 100;\n" +
-        "var scaleY = shapeLayer.transform.scale[1] / 100;\n" +
-        "\n" +
-        "var xOffset = repPos[0] * scaleX * qtd;\n" +
-        "var yOffset = repPos[1] * scaleY * qtd;\n" +
-        "\n" +
-        "value - [xOffset, yOffset];";
-
     var EXPR_SHAPE =
-        "// FAUX 3D EXTRUSION - corpo\n" +
+        "// FAUX 3D EXTRUSION - corpo (modo palavra)\n" +
         "// segue a camada de texto logo acima (mesmo deslocamento, ancora o \"chao\")\n" +
         "thisComp.layer(index - 1).transform.position;";
 
     var EXPR_COR_CORPO = 'thisComp.layer(index - 1).effect("Cor Extrusao")("Color");';
+    var EXPR_COR_FACE_CARACTERE = 'thisComp.layer(index - 1).effect("Cor Face")("Color");';
     var EXPR_STROKE_OP = 'thisComp.layer(index - 1).effect("Stroke")("Checkbox") ? 100 : 0;';
+
+    // Modo "caractere" — posição da TAMPA (cap) de UM glifo: cada letra tem a
+    // sua própria tampa, empurrada pela quantidade de cópias do REPEATER
+    // DELA MESMA (não de nenhuma "líder"). Isso é o que resolve a letra
+    // suspensa/flutuando: cada letra só sobe na medida exata do que já
+    // extrudou, nunca antes disso — sem depender de nenhuma outra letra.
+    function exprCapPos(nomeGrupo) {
+        return '' +
+            '// tampa da letra "' + nomeGrupo + '" - sobe so o quanto ELA MESMA ja extrudou\n' +
+            'var rep = thisComp.layer(index).content("' + nomeGrupo + '").content("Repeater 1");\n' +
+            'var qtd = Math.max(0, rep.copies - 1);\n' +
+            'var repPos = rep.transform.position;\n' +
+            '\n' +
+            'value - [repPos[0] * qtd, repPos[1] * qtd];';
+    }
 
     // ---------- helpers ----------
 
@@ -272,6 +276,47 @@
         try { rep.name = "Repeater 1"; } catch (e) {}
     }
 
+    // Duplica a geometria (e a cor original) do glifo dentro de um subgrupo
+    // "Cap", que fica visualmente por cima do corpo/repeater sem ser afetado
+    // por ele — porque é adicionado DEPOIS na lista de Contents, e o Repeater
+    // só repete o que está ACIMA dele na mesma lista.
+    function criarTampa(gc, pathOriginal, fillOriginal, strokeOriginal, nomeGrupo) {
+        var cap;
+        try { cap = gc.addProperty("ADBE Vector Group"); } catch (e) { return; }
+        if (!cap) return;
+        cap.name = "Cap";
+        var capContents = cap.property("ADBE Vectors Group");
+        if (!capContents) return;
+
+        try {
+            var capPath = capContents.addProperty("ADBE Vector Shape - Group");
+            capPath.property("ADBE Vector Shape").setValue(pathOriginal.property("ADBE Vector Shape").value);
+        } catch (e) {}
+
+        if (strokeOriginal) {
+            try {
+                var capStroke = capContents.addProperty("ADBE Vector Graphic - Stroke");
+                capStroke.property("ADBE Vector Stroke Color").setValue(
+                    strokeOriginal.property("ADBE Vector Stroke Color").value
+                );
+                capStroke.property("ADBE Vector Stroke Width").setValue(
+                    strokeOriginal.property("ADBE Vector Stroke Width").value
+                );
+            } catch (e) {}
+        }
+
+        try {
+            var capFill = capContents.addProperty("ADBE Vector Graphic - Fill");
+            capFill.property("ADBE Vector Fill Color").expression = EXPR_COR_FACE_CARACTERE;
+        } catch (e) {}
+
+        try {
+            cap.property("ADBE Vector Transform Group")
+               .property("ADBE Vector Position")
+               .expression = exprCapPos(nomeGrupo);
+        } catch (e) {}
+    }
+
     function repeaterPorCaractere(shapeLayer) {
         var contents = shapeLayer.property("ADBE Root Vectors Group");
         if (!contents) return 0;
@@ -291,19 +336,33 @@
         var n = grupos.length;
         var criados = 0;
         for (var k = 0; k < n; k++) {
-            // a letra líder (k=0, sempre a mais adiantada) precisa de nome fixo
-            // e previsível: é nela que a expressão da face vai buscar o offset.
-            if (k === 0) {
-                try { grupos[k].grupo.name = "FauxExt_Lead"; } catch (e) {}
-            }
+            var grupo = grupos[k].grupo;
+            var nomeGrupo = "FauxExt_" + k;
+            try { grupo.name = nomeGrupo; } catch (e) {}
 
-            var gc = grupos[k].grupo.property("ADBE Vectors Group");
+            var gc = grupo.property("ADBE Vectors Group");
             if (!gc) continue;
+
+            // captura o path/fill/stroke ORIGINAIS antes de mexer em qualquer coisa —
+            // eles vão virar o CORPO (repetido); a tampa é uma cópia deles, à parte.
+            var pathOriginal = null, fillOriginal = null, strokeOriginal = null;
+            for (var j = 1; j <= gc.numProperties; j++) {
+                var pj = gc.property(j);
+                if (pj.matchName === "ADBE Vector Shape - Group") pathOriginal = pj;
+                else if (pj.matchName === "ADBE Vector Graphic - Fill") fillOriginal = pj;
+                else if (pj.matchName === "ADBE Vector Graphic - Stroke") strokeOriginal = pj;
+            }
+            if (!pathOriginal) continue;
+
             var rep;
             try { rep = gc.addProperty("ADBE Vector Filter - Repeater"); } catch (e) { continue; }
             if (!rep) continue;
             configurarRepeater(rep, exprCopies(k, n));
             criados++;
+
+            // a tampa entra por último: fica abaixo do Repeater na lista de
+            // Contents, então não é afetada por ele.
+            criarTampa(gc, pathOriginal, fillOriginal, strokeOriginal, nomeGrupo);
         }
         return criados;
     }
@@ -351,6 +410,9 @@
     function ligarCorpoAosControles(group, temCheckbox) {
         for (var i = 1; i <= group.numProperties; i++) {
             var p = group.property(i);
+
+            // a tampa (Cap) já tem sua própria cor/expressão — não é corpo, não mexe.
+            if (ehGrupo(p) && p.name === "Cap") continue;
 
             if (p.matchName === "ADBE Vector Graphic - Fill") {
                 try {
@@ -492,9 +554,6 @@
             continue;
         }
 
-        // o comando desliga o texto original; ele volta a ser a face frontal
-        try { textLayer.enabled = true; } catch (e) {}
-
         shapeLayer.name = textLayer.name + " Extrusao";
         try { shapeLayer.moveAfter(textLayer); } catch (e) {}
 
@@ -502,13 +561,13 @@
         montarControles(textLayer, shapeLayer);
 
         if (MODO === "caractere") {
+            // a face vira as "tampas" dentro do próprio shape layer, cada uma
+            // empurrada pela extrusão da SUA letra — o texto original só
+            // guarda os controles, não precisa mais renderizar nada
             repeaterPorCaractere(shapeLayer);
-            // face empurrada pela letra líder + corpo acompanhando com o mesmo
-            // deslocamento: é isso que ancora o "chão" e faz a extrusão
-            // empurrar a face, em vez de crescer para longe dela
-            aplicarExpressao(textLayer, EXPR_TEXTO_CARACTERE);
-            aplicarExpressao(shapeLayer, EXPR_SHAPE);
         } else {
+            // o comando desliga o texto original; aqui ele volta a ser a face
+            try { textLayer.enabled = true; } catch (e) {}
             repeaterUnico(shapeLayer);
             aplicarExpressao(textLayer, EXPR_TEXTO);
             aplicarExpressao(shapeLayer, EXPR_SHAPE);
