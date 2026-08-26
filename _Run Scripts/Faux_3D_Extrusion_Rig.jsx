@@ -1,7 +1,7 @@
 /*
     FAUX 3D EXTRUSION RIG
     After Effects JSX
-    Version: 2.0.0
+    Version: 2.1.0
 
     Monta o rig de extrusão 3D falsa a partir de uma camada de TEXTO
     selecionada. Técnica do post do contentlab.cc ("How to create Faux 3D
@@ -57,6 +57,12 @@
     Selecione a(s) camada(s) de texto e execute o script.
 
     Changelog:
+    - 2.1.0: "Profundidade" aceita valor negativo, para inverter o sentido
+      da extrusão sem mexer em "Direcao" — permite tanto um objeto que
+      cresce "para o ar" (positiva) quanto um que parece emergir do chão
+      (negativa). O Copies do Repeater nunca aceita negativo (o AE trava
+      em 0), então a quantidade de cópias usa |Profundidade| e é o offset
+      quem aplica o sinal, invertendo a direção do crescimento.
     - 2.0.0: a animação deixa de ser keyframes assados no Copies de cada
       letra (que não davam controle nenhum: mudar o ritmo exigia reeditar
       letra por letra) e passa a ser dirigida por controles no Effect
@@ -104,20 +110,27 @@
 
     // ---------- expressões ----------
 
-    // Offset do repeater a partir de ângulo + distância. O -cos no Y corrige
-    // o eixo invertido do AE, para que 0° cresça de fato para cima.
+    // Offset do repeater a partir de ângulo + distância. O -cos no Y corrige o
+    // eixo invertido do AE (0° cresce para cima). O Copies do Repeater NUNCA
+    // aceita negativo (o AE trava em 0) — por isso a quantidade de cópias usa
+    // sempre |Profundidade|, e é este offset que aplica o SINAL de
+    // Profundidade, invertendo o sentido do crescimento sem mexer no ângulo.
+    // É o que permite animar tanto "saindo do ar" (Profundidade positiva)
+    // quanto "emergindo do chão" (Profundidade negativa, ou o texto
+    // posicionado no nível do chão com a extrusão crescendo para trás dele).
     var EXPR_OFFSET =
         'var ctrl = thisComp.layer(index - 1);\n' +
         'var a = degreesToRadians(ctrl.effect("Direcao")("Angle"));\n' +
         'var d = ctrl.effect("Distancia")("Slider");\n' +
-        '[Math.sin(a) * d, -Math.cos(a) * d];';
+        'var s = ctrl.effect("Profundidade")("Slider") < 0 ? -1 : 1;\n' +
+        '[Math.sin(a) * d * s, -Math.cos(a) * d * s];';
 
     // Copies de UM glifo: progresso global escalonado pelo índice da letra.
     function exprCopies(i, n) {
         return '' +
             '// letra ' + (i + 1) + ' de ' + n + '\n' +
             'var ctrl = thisComp.layer(index - 1);\n' +
-            'var prof = ctrl.effect("Profundidade")("Slider");\n' +
+            'var prof = Math.abs(ctrl.effect("Profundidade")("Slider"));\n' +
             'var stag = ctrl.effect("Stagger")("Slider");\n' +
             'var p = ctrl.effect("Progresso")("Slider") / 100;\n' +
             'var i = ' + i + ';\n' +
@@ -133,7 +146,7 @@
     // Modo "palavra": um repeater só, sem escalonamento.
     var EXPR_COPIES_PALAVRA =
         'var ctrl = thisComp.layer(index - 1);\n' +
-        'var prof = ctrl.effect("Profundidade")("Slider");\n' +
+        'var prof = Math.abs(ctrl.effect("Profundidade")("Slider"));\n' +
         'var p = ctrl.effect("Progresso")("Slider") / 100;\n' +
         'Math.round(p * prof);';
 
