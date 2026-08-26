@@ -1,7 +1,7 @@
 /*
     FAUX 3D EXTRUSION RIG
     After Effects JSX
-    Version: 1.2.0
+    Version: 1.3.0
 
     Monta o rig de extrusão 3D falsa a partir de uma camada de TEXTO
     selecionada. Técnica do post do contentlab.cc ("How to create Faux 3D
@@ -52,7 +52,26 @@
 
     Selecione a(s) camada(s) de texto e execute o script.
 
+    DOIS MODOS (constante MODO)
+      - "caractere" (padrão): um Repeater DENTRO de cada glifo, com o Copies
+        animado de 0 até COPIES e um atraso crescente letra a letra. É o que
+        a referência mostra ("animate Copies and repeat for every character").
+        Aqui a face é o próprio texto, que não se move, então as expressões
+        de compensação não são necessárias.
+      - "palavra": um Repeater único e as duas expressões do post. Também é
+        animável — basta animar o Copies, e a expressão mantém tudo
+        registrado — mas a palavra inteira extruda junta, sem escalonamento.
+
+    O post também mostra um "Method 2 (Quick)" que usa ferramentas pagas de
+    terceiros (o script Explode_Text e o painel Morpheus, com ADD EXTRUSION
+    e animação do Radius de um efeito Extrusion Depth). Este script replica
+    o Method 1, sem depender delas.
+
     Changelog:
+    - 1.3.0: modo "caractere" com Repeater por glifo e animação escalonada do
+      Copies — antes o rig era estático e extrudava a palavra inteira junta.
+      Os glifos são ordenados da esquerda para a direita antes de escalonar,
+      já que a ordem dos grupos criados pelo AE não é garantida.
     - 1.2.0: painel único de controles na camada de texto, com "Cor Face"
       (via efeito Fill), "Cor Extrusao" e "Stroke".
     - 1.1.0: cor própria para o corpo da extrusão (antes herdava a cor
@@ -62,8 +81,22 @@
 */
 (function fauxExtrusionRig() {
     // ---- ajustes ----
+    // "caractere" : um Repeater DENTRO de cada glifo. Permite animar cada letra
+    //               separadamente e escalonar (é o que a referência mostra).
+    // "palavra"   : um Repeater único para o texto todo, com as expressões de
+    //               compensação do post. Também é animável (anime o Copies),
+    //               mas a palavra inteira extruda junta, sem stagger.
+    var MODO = "caractere";
+
     var COPIES = 30;          // profundidade da extrusão (nº de cópias do repeater)
     var OFFSET = [1.5, 1.5];  // direção/passo da extrusão, em px por cópia
+
+    // Animação (só no modo "caractere"): o Copies de cada letra cresce de 0 até
+    // COPIES, com um atraso crescente letra a letra.
+    var ANIMAR = true;
+    var INICIO = 0;           // segundos, a partir do início da camada
+    var DURACAO = 0.5;        // segundos que cada letra leva para extrudar
+    var STAGGER = 0.06;       // atraso entre uma letra e a seguinte
 
     // Valores INICIAIS dos controles — depois tudo é ajustável ao vivo no
     // Effect Controls. null = deriva da cor do texto.
@@ -166,6 +199,88 @@
 
         // a expressão procura o repeater pelo nome "Repeater 1"
         try { rep.name = "Repeater 1"; } catch (e) {}
+    }
+
+    // X mínimo dos vértices de um grupo — usado para ordenar os glifos da
+    // esquerda para a direita, já que a ordem dos grupos criados pelo
+    // "Create Shapes from Text" não é garantida.
+    function minXdoGrupo(group) {
+        var min = null;
+        for (var i = 1; i <= group.numProperties; i++) {
+            var p = group.property(i);
+            if (p.matchName === "ADBE Vector Shape - Group") {
+                try {
+                    var verts = p.property("ADBE Vector Shape").value.vertices;
+                    for (var v = 0; v < verts.length; v++) {
+                        if (min === null || verts[v][0] < min) min = verts[v][0];
+                    }
+                } catch (e) {}
+            } else if (ehGrupo(p)) {
+                var sub = minXdoGrupo(p);
+                if (sub !== null && (min === null || sub < min)) min = sub;
+            }
+        }
+        return min;
+    }
+
+    // Modo "caractere": um Repeater dentro de cada glifo, com Copies animado e
+    // escalonado. É isso que permite cada letra extrudar no seu tempo.
+    function repeaterPorCaractere(shapeLayer) {
+        var contents = shapeLayer.property("ADBE Root Vectors Group");
+        if (!contents) return 0;
+
+        // coleta os grupos de glifo e ordena por posição horizontal
+        var grupos = [];
+        for (var i = 1; i <= contents.numProperties; i++) {
+            var g = contents.property(i);
+            if (g.matchName !== "ADBE Vector Group") continue;
+            grupos.push({ grupo: g, x: minXdoGrupo(g) });
+        }
+        grupos.sort(function (a, b) {
+            if (a.x === null) return 1;
+            if (b.x === null) return -1;
+            return a.x - b.x;
+        });
+
+        var criados = 0;
+        for (var k = 0; k < grupos.length; k++) {
+            var gc = grupos[k].grupo.property("ADBE Vectors Group");
+            if (!gc) continue;
+
+            var rep;
+            try {
+                rep = gc.addProperty("ADBE Vector Filter - Repeater");
+            } catch (e) {
+                continue;
+            }
+            if (!rep) continue;
+
+            try {
+                rep.property("ADBE Vector Repeater Transform")
+                   .property("ADBE Vector Repeater Position")
+                   .setValue(OFFSET);
+            } catch (e) {}
+
+            var copies = null;
+            try { copies = rep.property("ADBE Vector Repeater Copies"); } catch (e) {}
+
+            if (copies) {
+                if (ANIMAR) {
+                    var t0 = INICIO + k * STAGGER;
+                    try {
+                        copies.setValueAtTime(t0, 0);
+                        copies.setValueAtTime(t0 + DURACAO, COPIES);
+                    } catch (e) {
+                        try { copies.setValue(COPIES); } catch (err) {}
+                    }
+                } else {
+                    try { copies.setValue(COPIES); } catch (e) {}
+                }
+            }
+
+            criados++;
+        }
+        return criados;
     }
 
     // Primeira cor de fill encontrada — base para derivar as cores dos controles.
@@ -318,11 +433,16 @@
         shapeLayer.name = textLayer.name + " Extrusao";
         try { shapeLayer.moveAfter(textLayer); } catch (e) {}
 
-        adicionarRepeater(shapeLayer);
-
-        // ordem importa: as expressões dependem do shape estar logo abaixo do texto
-        aplicarExpressao(textLayer, EXPR_TEXTO);
-        aplicarExpressao(shapeLayer, EXPR_SHAPE);
+        if (MODO === "caractere") {
+            // cada glifo ganha o seu Repeater; a face é o próprio texto, que não
+            // se move — por isso aqui NÃO entram as expressões de compensação.
+            repeaterPorCaractere(shapeLayer);
+        } else {
+            adicionarRepeater(shapeLayer);
+            // ordem importa: as expressões dependem do shape estar logo abaixo do texto
+            aplicarExpressao(textLayer, EXPR_TEXTO);
+            aplicarExpressao(shapeLayer, EXPR_SHAPE);
+        }
 
         montarControles(textLayer, shapeLayer);
 
