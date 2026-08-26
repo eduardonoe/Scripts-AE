@@ -1,7 +1,7 @@
 /*
     FAUX 3D EXTRUSION RIG
     After Effects JSX
-    Version: 1.0.0
+    Version: 1.2.0
 
     Monta o rig de extrusão 3D falsa a partir de uma camada de TEXTO
     selecionada. Técnica do post do contentlab.cc ("How to create Faux 3D
@@ -18,7 +18,8 @@
       4. aplica a expressão de Position no texto, que compensa o
          deslocamento total do repeater;
       5. aplica a expressão de Position no shape layer, que passa a
-         seguir o texto.
+         seguir o texto;
+      6. cria o painel de controles no Effect Controls do TEXTO.
 
     A SACADA DA EXPRESSÃO: o offset do Repeater é medido no espaço
     interno da camada, ANTES da escala. Por isso a compensação multiplica
@@ -26,15 +27,53 @@
     a face frontal descolaria do corpo. Com isso, dá para mexer em
     copies, offset e escala à vontade que tudo continua registrado.
 
+    PAINEL DE CONTROLES (tudo na camada de TEXTO, um lugar só):
+      - "Cor Face"     : cor da face frontal.
+      - "Cor Extrusao" : cor do corpo da extrusão.
+      - "Stroke"       : liga/desliga o contorno do corpo. Só é criado
+                         quando o texto realmente tem stroke.
+    O corpo da extrusão lê esses controles por expressão, na camada de
+    texto logo acima dele.
+
+    SOBRE A COR DA FACE: é controlada por um efeito Fill aplicado no
+    texto. Isso pinta a face inteira de uma cor só — se o seu texto tiver
+    stroke de cor diferente na FACE, desligue (ou apague) esse efeito Fill
+    e defina a cor no próprio texto. A extrusão não é afetada por isso.
+
+    SOBRE O STROKE: o "Create Shapes from Text" já traz fill e stroke do
+    texto, sem precisar detectar nada. Vale saber que desligar o stroke
+    deixa o corpo mais FINO que a face frontal, porque o stroke engrossa
+    a silhueta — a extrusão aparece encolhida sob o texto. Por isso o
+    padrão é manter o stroke, recolorido na cor da extrusão
+    (RECOLORIR_STROKE), o que preserva a silhueta.
+
     Ajuste COPIES e OFFSET abaixo conforme a profundidade e a direção
     desejadas. OFFSET negativo joga a extrusão para o outro lado.
 
     Selecione a(s) camada(s) de texto e execute o script.
+
+    Changelog:
+    - 1.2.0: painel único de controles na camada de texto, com "Cor Face"
+      (via efeito Fill), "Cor Extrusao" e "Stroke".
+    - 1.1.0: cor própria para o corpo da extrusão (antes herdava a cor
+      exata do texto e ficava tudo chapado, sem leitura de 3D), derivada
+      da cor do texto por escurecimento.
+    - 1.0.0: versão inicial, montagem do rig e das duas expressões.
 */
 (function fauxExtrusionRig() {
     // ---- ajustes ----
     var COPIES = 30;          // profundidade da extrusão (nº de cópias do repeater)
     var OFFSET = [1.5, 1.5];  // direção/passo da extrusão, em px por cópia
+
+    // Valores INICIAIS dos controles — depois tudo é ajustável ao vivo no
+    // Effect Controls. null = deriva da cor do texto.
+    var COR_FACE = null;          // null = mantém a cor atual do texto
+    var COR_EXTRUSAO = null;      // null = cor do texto escurecida por FATOR_ESCURECER
+    var FATOR_ESCURECER = 0.55;   // 0 = preto, 1 = mesma cor do texto
+
+    var STROKE_INICIAL = true;    // estado inicial da caixa "Stroke"
+    var RECOLORIR_STROKE = true;  // true: stroke do corpo acompanha "Cor Extrusao"
+                                  // false: stroke mantém a cor original do texto
     // -----------------
 
     var comp = app.project.activeItem;
@@ -72,9 +111,18 @@
         "// segue a camada de texto logo acima\n" +
         "thisComp.layer(index - 1).transform.position;";
 
+    // o corpo lê os controles na camada de texto logo acima
+    var EXPR_COR_CORPO = 'thisComp.layer(index - 1).effect("Cor Extrusao")("Color");';
+    var EXPR_STROKE_OP = 'thisComp.layer(index - 1).effect("Stroke")("Checkbox") ? 100 : 0;';
+
     function selecionarApenas(layer) {
         for (var i = 1; i <= comp.numLayers; i++) comp.layer(i).selected = false;
         layer.selected = true;
+    }
+
+    function ehGrupo(p) {
+        return p.propertyType === PropertyType.NAMED_GROUP ||
+               p.propertyType === PropertyType.INDEXED_GROUP;
     }
 
     // "Create Shapes from Text" gera o layer de contornos e desliga o texto original.
@@ -104,10 +152,10 @@
 
     function adicionarRepeater(shapeLayer) {
         var contents = shapeLayer.property("ADBE Root Vectors Group");
-        if (!contents) return false;
+        if (!contents) return;
 
         var rep = contents.addProperty("ADBE Vector Filter - Repeater");
-        if (!rep) return false;
+        if (!rep) return;
 
         try { rep.property("ADBE Vector Repeater Copies").setValue(COPIES); } catch (e) {}
         try {
@@ -118,7 +166,118 @@
 
         // a expressão procura o repeater pelo nome "Repeater 1"
         try { rep.name = "Repeater 1"; } catch (e) {}
-        return true;
+    }
+
+    // Primeira cor de fill encontrada — base para derivar as cores dos controles.
+    function primeiraCorFill(group) {
+        if (!group) return null;
+        for (var i = 1; i <= group.numProperties; i++) {
+            var p = group.property(i);
+            if (p.matchName === "ADBE Vector Graphic - Fill") {
+                try { return p.property("ADBE Vector Fill Color").value; } catch (e) {}
+            } else if (ehGrupo(p)) {
+                var achado = primeiraCorFill(p);
+                if (achado) return achado;
+            }
+        }
+        return null;
+    }
+
+    function escurecer(cor, fator) {
+        var nova = [cor[0] * fator, cor[1] * fator, cor[2] * fator];
+        if (cor.length > 3) nova.push(cor[3]);
+        return nova;
+    }
+
+    function contarStrokes(group) {
+        var n = 0;
+        if (!group) return n;
+        for (var i = 1; i <= group.numProperties; i++) {
+            var p = group.property(i);
+            if (p.matchName === "ADBE Vector Graphic - Stroke") n++;
+            else if (ehGrupo(p)) n += contarStrokes(p);
+        }
+        return n;
+    }
+
+    // Liga fills e strokes do CORPO aos controles que estão na camada de texto.
+    function ligarCorpoAosControles(group, temCheckbox) {
+        for (var i = 1; i <= group.numProperties; i++) {
+            var p = group.property(i);
+
+            if (p.matchName === "ADBE Vector Graphic - Fill") {
+                try {
+                    p.property("ADBE Vector Fill Color").expression = EXPR_COR_CORPO;
+                } catch (e) {}
+
+            } else if (p.matchName === "ADBE Vector Graphic - Stroke") {
+                if (RECOLORIR_STROKE) {
+                    try {
+                        p.property("ADBE Vector Stroke Color").expression = EXPR_COR_CORPO;
+                    } catch (e) {}
+                }
+                if (temCheckbox) {
+                    // opacidade 0 some com o stroke sem alterar a estrutura do shape
+                    try {
+                        p.property("ADBE Vector Stroke Opacity").expression = EXPR_STROKE_OP;
+                    } catch (e) {}
+                }
+
+            } else if (ehGrupo(p)) {
+                ligarCorpoAosControles(p, temCheckbox);
+            }
+        }
+    }
+
+    // Painel único no texto: Cor Face, Cor Extrusao e Stroke.
+    function montarControles(textLayer, shapeLayer) {
+        var contents = shapeLayer.property("ADBE Root Vectors Group");
+        if (!contents) return;
+
+        var corBase = primeiraCorFill(contents);
+        var corFace = COR_FACE ? COR_FACE : (corBase ? corBase : [1, 1, 1]);
+        var corExtrusao = COR_EXTRUSAO
+            ? COR_EXTRUSAO
+            : (corBase ? escurecer(corBase, FATOR_ESCURECER) : [0, 0, 0]);
+
+        var fx = textLayer.property("ADBE Effect Parade");
+        if (!fx) return;
+
+        // --- Cor Face: controle + efeito Fill que pinta a face ---
+        try {
+            var ctlFace = fx.addProperty("ADBE Color Control");
+            ctlFace.name = "Cor Face";
+            ctlFace.property(1).setValue(corFace);
+
+            var fill = fx.addProperty("ADBE Fill");
+            var corDoFill = null;
+            try { corDoFill = fill.property("Color"); } catch (e) {}
+            if (!corDoFill) { try { corDoFill = fill.property("ADBE Fill-0002"); } catch (e) {} }
+            if (corDoFill) corDoFill.expression = 'effect("Cor Face")("Color");';
+        } catch (e) {}
+
+        // --- Cor Extrusao ---
+        try {
+            var ctlCorpo = fx.addProperty("ADBE Color Control");
+            ctlCorpo.name = "Cor Extrusao";
+            ctlCorpo.property(1).setValue(corExtrusao);
+        } catch (e) {
+            return; // sem o controle de cor não há o que ligar no corpo
+        }
+
+        // --- Stroke: só faz sentido se o texto realmente tiver stroke ---
+        var temStroke = contarStrokes(contents) > 0;
+        if (temStroke) {
+            try {
+                var chk = fx.addProperty("ADBE Checkbox Control");
+                chk.name = "Stroke";
+                chk.property(1).setValue(STROKE_INICIAL ? 1 : 0);
+            } catch (e) {
+                temStroke = false;
+            }
+        }
+
+        ligarCorpoAosControles(contents, temStroke);
     }
 
     function aplicarExpressao(layer, expr) {
@@ -156,7 +315,7 @@
         // o comando desliga o texto original; ele volta a ser a face frontal
         try { textLayer.enabled = true; } catch (e) {}
 
-        shapeLayer.name = textLayer.name + " Extrusão";
+        shapeLayer.name = textLayer.name + " Extrusao";
         try { shapeLayer.moveAfter(textLayer); } catch (e) {}
 
         adicionarRepeater(shapeLayer);
@@ -164,6 +323,8 @@
         // ordem importa: as expressões dependem do shape estar logo abaixo do texto
         aplicarExpressao(textLayer, EXPR_TEXTO);
         aplicarExpressao(shapeLayer, EXPR_SHAPE);
+
+        montarControles(textLayer, shapeLayer);
 
         montados++;
         app.endUndoGroup();
