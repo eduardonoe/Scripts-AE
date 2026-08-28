@@ -1,45 +1,48 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.1.0
+    Version: 1.0.0
 
-    Painel único com um conjunto de ferramentas do dia a dia, substituindo o
-    uso do Declutter e centralizando scripts que antes eram avulsos. Tudo
-    nesse arquivo é autocontido — nenhum botão chama outro .jsx externo.
+    Painel único com um conjunto de ferramentas do dia a dia, centralizando
+    scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
+    nenhum botão chama outro .jsx externo.
 
     Pode ser executado como script comum (abre uma janela flutuante) ou
     instalado em Scripts/ScriptUI Panels para abrir como painel encaixável
-    (Window > nome do arquivo).
+    (Window > nome do arquivo). Instalação automatizada via
+    Install_AE_Toolkit_Panel_ScriptUI.bat, na mesma pasta deste arquivo.
 
     GRUPOS
-      Projeto    : Declutter, Reduce Project, Remove Unused Footage
-      Limpeza    : Limpar Expressões, Reset Layer (tudo pros padrões)
-      Time Remap : Hold Time Remap (com opção de apagar o último keyframe)
-      Curvas     : Copiar Curva, Colar Curva
-      Camadas    : Layer Normalize, Quebrar Shapes, Precomp Extractor,
+      Project    : Tidy (organiza o Project Panel em _Comps/_PreComps,
+                   Assets/Audio-Images-AI-PSD-Footage, Solids — só cria
+                   pastas para tipos de arquivo realmente presentes no
+                   projeto), Edit Structure (editor das categorias do Tidy),
+                   Reduce Project, Remove Unused Footage
+      Cleanup    : Clear Expressions, Reset Layer (efeitos/expressões/layer
+                   styles removidos, Transform volta aos padrões)
+      Time Remap : Hold Time Remap (cria hold no CTI e apaga o último
+                   keyframe), Hold Keyframe (converte qualquer keyframe
+                   selecionado, em qualquer propriedade, em hold)
+      Curves     : Copy Curve, Paste Curve (interpolação/ease dos keyframes)
+      Layers     : Layer Normalize, Split Shapes (shape layer existente:
+                   ordem de criação invertida — mais antigo por último;
+                   PSD/vetor convertido: ordem espacial, linhas de baixo
+                   pra cima e direita pra esquerda dentro da linha),
+                   Precomp Extractor (com checkbox "Extract nested precomps
+                   too" — desmarcado, desempacota só o primeiro nível),
                    Layer Organizer
 
     Este arquivo cresce com o tempo — novos botões entram nos grupos
     existentes ou em grupos novos, mantendo o mesmo padrão.
-
-    Changelog:
-    - 1.1.0: Declutter passa a classificar por EXTENSÃO de arquivo (não só
-      vídeo/áudio) e ganha estrutura de categorias editável e persistente
-      (nome + extensões por pasta), salva em app.settings — botão "Editar
-      Estrutura" abre o editor. "Comps" e "Solids" são categorias especiais
-      sem extensão.
-    - 1.0.0: versão inicial, reunindo Limpar Expressões/Layer Styles, Hold
-      Time Remap (+ apagar último key), Easy Curve Copy/Paste, Layer
-      Normalize, Quebrar Shapes, Precomp Extractor, Layer Organizer, e as
-      ferramentas novas de projeto (Declutter, Reduce Project, Remove
-      Unused Footage).
 */
-(function () {
+(function (thisObj) {
 
     // ============================================================
     // ESTADO COMPARTILHADO (clipboard de curva em memória, não em arquivo)
     // ============================================================
     var easyCurveClipboard = null;
+    var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
+    var TOOLKIT_VERSION = "1.0.0"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -75,16 +78,36 @@
     var DECLUTTER_SETTINGS_SECTION = "AEToolkit_Declutter";
     var DECLUTTER_SETTINGS_KEY = "categorias";
 
+    // Estrutura padrão replica o layout do Declutter original:
+    //   _Comps            (comps que não são usadas como fonte em nenhuma outra comp)
+    //     _PreComps       (comps usadas como camada dentro de outra comp)
+    //   Assets
+    //     Audio / Images / AI / PSD / Footage
+    //   Solids            (fora de Assets, como no original)
+    // "pasta" indica a pasta-mãe (nome, sempre na raiz); ausente = raiz.
+    // "especial" identifica categorias com classificação própria (comps e
+    // solids), independente do nome que o usuário der a elas no editor.
     function categoriasPadrao() {
         return [
-            { nome: "Comps", exts: [] },              // especial: sempre pega CompItem
-            { nome: "Solids", exts: [] },              // especial: sempre pega SolidSource
-            { nome: "Audio", exts: ["mp3", "wav", "aac", "m4a", "aif", "aiff"] },
-            { nome: "Images", exts: ["jpg", "jpeg", "png", "tif", "tiff", "svg", "eps", "gif", "webp"] },
-            { nome: "AI", exts: ["ai"] },
-            { nome: "PSD", exts: ["psd"] },
-            { nome: "Footage", exts: ["mp4", "mov", "avi", "mxf", "mkv", "webm", "prores", "m4v"] }
+            { nome: "_Comps", exts: [], especial: "comps_top" },
+            { nome: "_PreComps", exts: [], especial: "comps_pre", pasta: "_Comps" },
+            { nome: "Solids", exts: [], especial: "solids" },
+            { nome: "Audio", exts: ["mp3", "wav", "aac", "m4a", "aif", "aiff"], pasta: "Assets" },
+            { nome: "Images", exts: ["jpg", "jpeg", "png", "tif", "tiff", "svg", "eps", "gif", "webp"], pasta: "Assets" },
+            { nome: "AI", exts: ["ai"], pasta: "Assets" },
+            { nome: "PSD", exts: ["psd"], pasta: "Assets" },
+            { nome: "Footage", exts: ["mp4", "mov", "avi", "mxf", "mkv", "webm", "prores", "m4v"], pasta: "Assets" }
         ];
+    }
+
+    // Reconhece se as categorias salvas já são do formato atual (com
+    // _Comps/_PreComps). Configurações de versões antigas (categoria única
+    // "Comps") são substituídas pela estrutura padrão nova automaticamente.
+    function categoriasEmFormatoAtual(data) {
+        for (var i = 0; i < data.length; i++) {
+            if (data[i].especial === "comps_pre") return true;
+        }
+        return false;
     }
 
     function carregarCategorias() {
@@ -92,7 +115,7 @@
             if (app.settings.haveSetting(DECLUTTER_SETTINGS_SECTION, DECLUTTER_SETTINGS_KEY)) {
                 var raw = app.settings.getSetting(DECLUTTER_SETTINGS_SECTION, DECLUTTER_SETTINGS_KEY);
                 var data = eval("(" + raw + ")");
-                if (data && data.length > 0) return data;
+                if (data && data.length > 0 && categoriasEmFormatoAtual(data)) return data;
             }
         } catch (e) {}
         return categoriasPadrao();
@@ -104,14 +127,23 @@
         } catch (e) {}
     }
 
-    function acharOuCriarPasta(nome) {
+    function acharOuCriarPastaEm(nome, parentFolder) {
         for (var i = 1; i <= app.project.numItems; i++) {
             var it = app.project.item(i);
-            if (it instanceof FolderItem && it.parentFolder === app.project.rootFolder && it.name === nome) {
+            if (it instanceof FolderItem && it.parentFolder === parentFolder && it.name === nome) {
                 return it;
             }
         }
-        return app.project.items.addFolder(nome);
+        var novo = app.project.items.addFolder(nome);
+        novo.parentFolder = parentFolder;
+        return novo;
+    }
+
+    // pastaPaiNome, quando presente, é criada/encontrada na raiz primeiro.
+    function acharOuCriarPasta(nome, pastaPaiNome) {
+        var parent = app.project.rootFolder;
+        if (pastaPaiNome) parent = acharOuCriarPastaEm(pastaPaiNome, app.project.rootFolder);
+        return acharOuCriarPastaEm(nome, parent);
     }
 
     function extensaoDoItem(item) {
@@ -126,24 +158,45 @@
         return null;
     }
 
-    // Retorna o NOME da categoria (da lista configurável) para este item, ou
-    // null se ele deve ficar de fora (pastas, ou nenhuma categoria bate).
+    function acharCategoriaEspecial(categorias, tipo) {
+        for (var i = 0; i < categorias.length; i++) {
+            if (categorias[i].especial === tipo) return categorias[i];
+        }
+        return null;
+    }
+
+    // Uma comp é "precomp" se aparecer como fonte de alguma camada em
+    // qualquer outra comp do projeto; senão é uma comp "de saída" (solta).
+    function usadaComoPrecomp(compItem) {
+        for (var i = 1; i <= app.project.numItems; i++) {
+            var it = app.project.item(i);
+            if (it instanceof CompItem && it !== compItem) {
+                for (var L = 1; L <= it.numLayers; L++) {
+                    try {
+                        if (it.layer(L).source === compItem) return true;
+                    } catch (e) {}
+                }
+            }
+        }
+        return false;
+    }
+
+    // Retorna a categoria (objeto {nome, pasta, ...}) deste item, ou null se
+    // ele deve ficar de fora (pastas, ou nenhuma categoria bate).
     function categoriaDoItem(item, categorias) {
         if (item instanceof FolderItem) return null;
 
         if (item instanceof CompItem) {
-            for (var c = 0; c < categorias.length; c++) {
-                if (categorias[c].nome === "Comps" && categorias[c].exts.length === 0) return categorias[c].nome;
-            }
-            return null;
+            var tipo = usadaComoPrecomp(item) ? "comps_pre" : "comps_top";
+            return acharCategoriaEspecial(categorias, tipo);
         }
 
         if (item instanceof FootageItem) {
-            if (item.mainSource instanceof SolidSource) {
-                for (var s = 0; s < categorias.length; s++) {
-                    if (categorias[s].nome === "Solids" && categorias[s].exts.length === 0) return categorias[s].nome;
-                }
-                return null;
+            var mainSource;
+            try { mainSource = item.mainSource; } catch (e) { mainSource = null; }
+
+            if (mainSource instanceof SolidSource) {
+                return acharCategoriaEspecial(categorias, "solids");
             }
 
             var ext = extensaoDoItem(item);
@@ -151,46 +204,104 @@
                 for (var i = 0; i < categorias.length; i++) {
                     var exts = categorias[i].exts;
                     for (var e = 0; e < exts.length; e++) {
-                        if (exts[e].toLowerCase() === ext) return categorias[i].nome;
+                        if (exts[e].toLowerCase() === ext) return categorias[i];
                     }
                 }
             }
 
             // sem extensão reconhecida: usa vídeo/áudio como fallback
-            if (item.hasAudio && !item.hasVideo) {
+            var somenteAudio = false;
+            try { somenteAudio = item.hasAudio && !item.hasVideo; } catch (e2) {}
+            if (somenteAudio) {
                 for (var a = 0; a < categorias.length; a++) {
-                    if (categorias[a].nome === "Audio") return categorias[a].nome;
+                    if (categorias[a].nome === "Audio") return categorias[a];
                 }
             }
             for (var f = 0; f < categorias.length; f++) {
-                if (categorias[f].nome === "Footage") return categorias[f].nome;
+                if (categorias[f].nome === "Footage") return categorias[f];
             }
         }
 
-        return "Outros";
+        return { nome: "Others" };
+    }
+
+    // Apaga pastas de categoria que ficaram sem nenhum item — cobre tanto
+    // categorias sem arquivo daquele tipo no projeto quanto pastas vazias
+    // deixadas por uma execução anterior com arquivos que já foram
+    // removidos/movidos. Duas passadas: a segunda pega containers (Assets,
+    // _Comps) que só esvaziam depois que suas subpastas somem na primeira.
+    function removerPastasVaziasDeCategorias(categorias) {
+        // "Precomps"/"Comps" (sem underscore): nomes usados por versões
+        // antigas do Tidy, antes da estrutura aninhada atual. Ficam vazias
+        // depois que as comps saem de lá, e são removidas junto.
+        var nomes = { "Others": true, "Precomps": true, "Comps": true };
+        for (var i = 0; i < categorias.length; i++) {
+            nomes[categorias[i].nome] = true;
+            if (categorias[i].pasta) nomes[categorias[i].pasta] = true;
+        }
+
+        for (var pass = 0; pass < 2; pass++) {
+            for (var idx = app.project.numItems; idx >= 1; idx--) {
+                var it = app.project.item(idx);
+                if (it instanceof FolderItem && nomes[it.name] && it.numItems === 0) {
+                    try { it.remove(); } catch (e) {}
+                }
+            }
+        }
     }
 
     function declutter() {
         var categorias = carregarCategorias();
 
-        app.beginUndoGroup("Declutter");
+        app.beginUndoGroup("Tidy");
         try {
             var pastas = {};
+            var falhas = 0;
+
+            // Junta os itens num array ANTES de mover qualquer um: mover um
+            // item para dentro de uma pasta muda a ordem/índice de exibição
+            // dos itens seguintes no Project Panel (app.project.item(i) é
+            // por ORDEM DE EXIBIÇÃO, não por ID estável de criação). Iterar
+            // por índice enquanto move itens faz pular ou reprocessar itens
+            // no meio do caminho — era a causa de arquivos ficarem de fora
+            // aparentemente ao acaso. Referências de objeto no array não são
+            // afetadas por essa reordenação.
+            var itens = [];
             var total = app.project.numItems;
-            // percorre uma cópia dos índices atuais; novos itens (pastas criadas)
-            // entram no fim e não afetam os já processados
-            for (var i = 1; i <= total; i++) {
-                var item = app.project.item(i);
-                if (item.parentFolder !== app.project.rootFolder) continue; // já organizado
+            for (var t = 1; t <= total; t++) itens.push(app.project.item(t));
 
-                var destino = categoriaDoItem(item, categorias);
-                if (!destino) continue;
+            for (var i = 0; i < itens.length; i++) {
+                try {
+                    var item = itens[i];
+                    // Comps são sempre reclassificadas (mesmo já estando em
+                    // alguma pasta) porque "precomp ou não" pode mudar de uma
+                    // execução pra outra, e porque pastas legadas de versões
+                    // antigas do Tidy (ex.: "Precomps" solta, fora de
+                    // "_Comps") nunca seriam corrigidas se comps já
+                    // organizadas fossem puladas. Os demais tipos de item só
+                    // são tocados se ainda estiverem soltos na raiz, pra não
+                    // desfazer organização manual do usuário.
+                    var jaOrganizado = item.parentFolder !== app.project.rootFolder;
+                    if (jaOrganizado && !(item instanceof CompItem)) continue;
 
-                if (!pastas[destino]) pastas[destino] = acharOuCriarPasta(destino);
-                item.parentFolder = pastas[destino];
+                    var categoria = categoriaDoItem(item, categorias);
+                    if (!categoria) continue;
+
+                    var chave = (categoria.pasta ? categoria.pasta + "/" : "") + categoria.nome;
+                    if (!pastas[chave]) pastas[chave] = acharOuCriarPasta(categoria.nome, categoria.pasta);
+                    if (item.parentFolder !== pastas[chave]) item.parentFolder = pastas[chave];
+                } catch (itemErr) {
+                    // um item problemático (offline, corrompido, etc.) não pode
+                    // travar a organização do resto do projeto
+                    falhas++;
+                }
+            }
+            removerPastasVaziasDeCategorias(categorias);
+            if (falhas > 0) {
+                alert("Tidy: " + falhas + " item(s) could not be organized (left where they were).");
             }
         } catch (e) {
-            alert("Declutter — erro: " + e.toString());
+            alert("Tidy — error: " + e.toString());
         } finally {
             app.endUndoGroup();
         }
@@ -200,25 +311,25 @@
     function editarEstruturaDeclutter() {
         var categorias = carregarCategorias();
 
-        var dlg = new Window("dialog", "Editar Estrutura de Pastas");
+        var dlg = new Window("dialog", "Edit Folder Structure");
         dlg.orientation = "column";
         dlg.alignChildren = ["fill", "top"];
         dlg.spacing = 6;
         dlg.margins = 12;
 
         dlg.add("statictext", undefined,
-            "Cada linha vira uma pasta. \"Comps\" e \"Solids\" são especiais (sem extensão).\n" +
-            "Nas demais, liste as extensões separadas por vírgula (ex.: mp4, mov, mxf).");
+            "Each row becomes a folder. Special rows (Comps/PreComps/Solids) have no extension.\n" +
+            "For the others, list extensions separated by commas (e.g.: mp4, mov, mxf).");
 
         var linhasGroup = dlg.add("group");
         linhasGroup.orientation = "column";
         linhasGroup.alignChildren = ["fill", "top"];
         linhasGroup.spacing = 3;
 
-        var linhas = []; // { row, nomeField, extField, especial }
+        var linhas = []; // { row, nomeField, extField, original }
 
-        function addLinha(nome, exts) {
-            var especial = (nome === "Comps" || nome === "Solids");
+        function addLinha(nome, exts, original) {
+            var especial = !!(original && original.especial);
             var row = linhasGroup.add("group");
             row.orientation = "row";
             row.alignChildren = ["fill", "center"];
@@ -240,36 +351,43 @@
                 dlg.layout.layout(true);
             };
 
-            linhas.push({ row: row, nomeField: nomeField, extField: extField });
+            linhas.push({ row: row, nomeField: nomeField, extField: extField, original: original || null });
         }
 
-        for (var i = 0; i < categorias.length; i++) addLinha(categorias[i].nome, categorias[i].exts);
+        for (var i = 0; i < categorias.length; i++) addLinha(categorias[i].nome, categorias[i].exts, categorias[i]);
 
-        var btnAdd = dlg.add("button", undefined, "+ Nova categoria");
+        var btnAdd = dlg.add("button", undefined, "+ New Category");
         btnAdd.alignment = ["left", "top"];
         btnAdd.onClick = function () {
-            addLinha("Nova", []);
+            addLinha("New", [], null);
             dlg.layout.layout(true);
         };
 
         var botoes = dlg.add("group");
         botoes.alignment = "right";
-        var btnCancelar = botoes.add("button", undefined, "Cancelar", { name: "cancel" });
-        var btnSalvar = botoes.add("button", undefined, "Salvar", { name: "ok" });
+        var btnCancelar = botoes.add("button", undefined, "Cancel", { name: "cancel" });
+        var btnSalvar = botoes.add("button", undefined, "Save", { name: "ok" });
 
         btnSalvar.onClick = function () {
             var novasCategorias = [];
             for (var li = 0; li < linhas.length; li++) {
                 var nome = linhas[li].nomeField.text.replace(/^\s+|\s+$/g, "");
                 if (!nome) continue;
-                var raw = linhas[li].extField.text;
+                var original = linhas[li].original;
+                var especial = !!(original && original.especial);
                 var exts = [];
-                var partes = raw.split(",");
-                for (var p = 0; p < partes.length; p++) {
-                    var v = partes[p].replace(/^\s+|\s+$/g, "").replace(/^\./, "").toLowerCase();
-                    if (v) exts.push(v);
+                if (!especial) {
+                    var raw = linhas[li].extField.text;
+                    var partes = raw.split(",");
+                    for (var p = 0; p < partes.length; p++) {
+                        var v = partes[p].replace(/^\s+|\s+$/g, "").replace(/^\./, "").toLowerCase();
+                        if (v) exts.push(v);
+                    }
                 }
-                novasCategorias.push({ nome: nome, exts: (nome === "Comps" || nome === "Solids") ? [] : exts });
+                var cat = { nome: nome, exts: exts };
+                if (original && original.pasta) cat.pasta = original.pasta;
+                if (original && original.especial) cat.especial = original.especial;
+                novasCategorias.push(cat);
             }
             salvarCategorias(novasCategorias);
             dlg.close(1);
@@ -311,7 +429,7 @@
             if (ativa) alvos.push(ativa);
         }
         if (alvos.length === 0) {
-            alert("Selecione uma ou mais comps no Project Panel, ou abra a comp que quer manter.");
+            alert("Select one or more comps in the Project Panel, or open the comp you want to keep.");
             return;
         }
 
@@ -319,7 +437,7 @@
         try {
             app.project.reduceProject(alvos);
         } catch (e) {
-            alert("Reduce Project — erro: " + e.toString());
+            alert("Reduce Project — error: " + e.toString());
         } finally {
             app.endUndoGroup();
         }
@@ -332,7 +450,7 @@
         try {
             app.project.removeUnusedFootage();
         } catch (e) {
-            alert("Remove Unused Footage — erro: " + e.toString());
+            alert("Remove Unused Footage — error: " + e.toString());
         } finally {
             app.endUndoGroup();
         }
@@ -362,7 +480,7 @@
         var layers = c.selectedLayers;
         if (layers.length === 0) return;
 
-        app.beginUndoGroup("Limpar Expressões");
+        app.beginUndoGroup("Clear Expressions");
         for (var i = 0; i < layers.length; i++) {
             removeExpressoesRecursivo(layers[i]);
         }
@@ -625,7 +743,7 @@
         var props = propriedadesAlvo(c);
         if (props.length === 0) return;
 
-        app.beginUndoGroup("Colar Curva");
+        app.beginUndoGroup("Paste Curve");
         var n = Math.min(easyCurveClipboard.properties.length, props.length);
 
         for (var i = 0; i < n; i++) {
@@ -725,7 +843,16 @@
     // CAMADAS — Quebrar Shapes (mesma lógica do Quebrar Shapes PSD)
     // ============================================================
 
-    function splitShapeLayerCore(c, layer) {
+    // modo "criacao" (padrão): inverte a ordem de criação dos grupos de
+    // vetor — o mais antigo (criado primeiro pelo usuário) fica por último
+    // (mais embaixo) na timeline. Usado ao quebrar um shape layer que já
+    // existia como tal.
+    // modo "espacial": ordena por posição, esquerda→direita e topo→baixo
+    // (como leitura de texto), sem inverter. Usado no resultado de
+    // PSD/vetor convertido (Auto-trace/Create Shapes from Vector Layer),
+    // onde não existe uma "ordem de criação" que faça sentido — os grupos
+    // saem numa ordem arbitrária do próprio comando de conversão.
+    function splitShapeLayerCore(c, layer, modo) {
         var contents = layer.property("ADBE Root Vectors Group");
         if (!contents) return [layer];
 
@@ -752,7 +879,20 @@
         novas.push(layer);
 
         for (var k = 0; k < novas.length; k++) centralizarAnchor(novas[k]);
-        organizarPorPosicao(c, novas);
+
+        // novas está em ordem de criação: [grupo mais novo, ..., grupo mais
+        // antigo] — o grupo mais antigo (criado primeiro pelo usuário) sai
+        // naturalmente no TOPO do stack (layer 1). O pedido é o oposto: o
+        // primeiro criado deve ficar por ÚLTIMO (mais embaixo). Basta
+        // inverter a ordem de criação — nada a ver com posição espacial.
+        if (modo === "espacial") {
+            organizarPorPosicao(c, novas);
+        } else {
+            var ordemFinal = novas.slice().reverse();
+            for (var m = 1; m < ordemFinal.length; m++) {
+                try { ordemFinal[m].moveAfter(ordemFinal[m - 1]); } catch (e) {}
+            }
+        }
 
         return novas;
     }
@@ -772,6 +912,8 @@
         }
     }
 
+    // Esquerda→direita, topo→baixo — como leitura de texto. O primeiro da
+    // leitura vira layer 1 (topo do stack); sem inversão.
     function organizarPorPosicao(c, layerArr) {
         if (layerArr.length <= 1) return;
         var comPos = [];
@@ -781,8 +923,13 @@
         }
         var TOL = 40;
         comPos.sort(function (a, b) {
-            if (Math.abs(a.y - b.y) > TOL) return a.y - b.y;
-            return a.x - b.x;
+            // Y decrescente: linha mais embaixo na tela vira layer 1 (topo
+            // do stack), subindo linha por linha. X decrescente dentro da
+            // mesma linha: direita para esquerda (confirmado letra por
+            // letra pelo usuário num teste real com 25 caracteres em 3
+            // linhas — é o oposto de "esquerda pra direita").
+            if (Math.abs(a.y - b.y) > TOL) return b.y - a.y;
+            return b.x - a.x;
         });
         for (var j = 1; j < comPos.length; j++) {
             try { comPos[j].layer.moveAfter(comPos[j - 1].layer); } catch (e) {}
@@ -973,10 +1120,10 @@
 
     function quebrarShapes() {
         var c = comp();
-        if (!c) { alert("Abra uma composição e selecione os layers."); return; }
+        if (!c) { alert("Open a composition and select the layers."); return; }
 
         var alvo = c.selectedLayers;
-        if (alvo.length === 0) { alert("Selecione as camadas (shape layers e/ou camadas de PSD)."); return; }
+        if (alvo.length === 0) { alert("Select the layers (shape layers and/or PSD layers)."); return; }
         alvo = alvo.slice(0);
 
         var quebrados = 0, gruposSeparados = 0, psdConvertidos = 0, falhas = 0;
@@ -985,7 +1132,7 @@
             var layer = alvo[i];
             try {
                 if (layer instanceof ShapeLayer) {
-                    var novas = splitShapeLayerCore(c, layer);
+                    var novas = splitShapeLayerCore(c, layer, "criacao");
                     if (novas.length > 1) { quebrados++; gruposSeparados += novas.length; }
                 } else if (layer instanceof AVLayer && layer.source) {
                     var novoShape = tentarCriarShapesDoVetor(c, layer);
@@ -993,7 +1140,7 @@
                     if (!novoShape) novoShape = converterRasterParaShapes(c, layer, dbg);
                     if (novoShape) {
                         psdConvertidos++;
-                        var novas2 = splitShapeLayerCore(c, novoShape);
+                        var novas2 = splitShapeLayerCore(c, novoShape, "espacial");
                         if (novas2.length > 1) gruposSeparados += novas2.length;
                     } else {
                         falhas++;
@@ -1003,8 +1150,8 @@
         }
 
         if (quebrados === 0 && psdConvertidos === 0 && falhas > 0) {
-            alert("Nenhuma conversão bem-sucedida. Falhas: " + falhas +
-                "\n(pode faltar dado vetorial na camada, ou o Auto-trace precisa ser confirmado no diálogo)");
+            alert("No successful conversion. Failures: " + falhas +
+                "\n(the layer may be missing vector data, or Auto-trace needs to be confirmed in its dialog)");
         }
     }
 
@@ -1012,14 +1159,60 @@
     // CAMADAS — Precomp Extractor
     // ============================================================
 
-    function flattenLayer(layer, c, cmdCopy, cmdPaste, cmdClose) {
+    function flattenLayer(layer, c, cmdCopy, cmdPaste, cmdClose, recursivo) {
         if (!(layer instanceof AVLayer) || !layer.source || !(layer.source instanceof CompItem)) return;
 
         var source = layer.source;
+
+        // Copy/Paste traz os layers com os valores de tempo BRUTOS da comp de
+        // origem — ignora startTime/stretch/trim que a própria camada de
+        // precomp tinha na comp de destino. Sem reaplicar isso, qualquer
+        // conteúdo animado sai fora de sincronia (só passa despercebido
+        // quando nada se move). Guardamos os valores da camada-wrapper antes
+        // de mexer nela.
+        var wrapperStartTime = layer.startTime;
+        var wrapperStretch = layer.stretch;
+        var wrapperInPoint = layer.inPoint;
+        var wrapperOutPoint = layer.outPoint;
+
+        // Parenting, track matte e blend mode aplicados diretamente na
+        // camada de precomp (não no conteúdo interno dela) também eram
+        // perdidos: a camada some (layer.remove()) e nada assumia o lugar
+        // dela nessas relações. Guardamos antes de mexer.
+        var wrapperParent = null;
+        try { wrapperParent = layer.parent; } catch (e) {}
+        var wrapperTrackMatteLayer = null;
+        var wrapperTrackMatteType = null;
+        try {
+            if (layer.trackMatteType !== TrackMatteType.NO_TRACK_MATTE) {
+                wrapperTrackMatteLayer = layer.trackMatteLayer;
+                wrapperTrackMatteType = layer.trackMatteType;
+            }
+        } catch (e) {}
+        var wrapperBlendingMode = null;
+        try { wrapperBlendingMode = layer.blendingMode; } catch (e) {}
+
         source.openInViewer();
         for (var i = 1; i <= source.numLayers; i++) source.layer(i).selected = true;
         var hasLayers = source.numLayers > 0;
-        if (hasLayers) app.executeCommand(cmdCopy);
+        if (hasLayers) {
+            // O comando Copy do AE recusa copiar uma camada com pai (parent)
+            // ou com expressão vinculando outra camada ENQUANTO um Undo
+            // Group do script está aberto ("Can't copy a layer with a
+            // parent or with a linked expression, while an Undo Group is
+            // open") — restrição da própria API, não bug nosso. precomps
+            // com null/parenting ou expressões entre camadas (bem comuns)
+            // sempre falhavam por causa disso. Fecha o Undo Group só durante
+            // o Copy e reabre logo depois, com o mesmo nome — o resultado
+            // aparece como mais de uma entrada no Undo em vez de uma só,
+            // mas a extração passa a funcionar nesses casos.
+            app.endUndoGroup();
+            try {
+                app.executeCommand(cmdCopy);
+            } finally {
+                app.beginUndoGroup("Precomp Extractor");
+            }
+        }
         app.executeCommand(cmdClose);
 
         if (!hasLayers) { layer.remove(); return; }
@@ -1030,29 +1223,72 @@
         app.executeCommand(cmdPaste);
 
         var pasted = c.selectedLayers.slice();
+
+        // Reaplica a velocidade e o deslocamento no tempo que a camada de
+        // precomp tinha, para que o conteúdo extraído caia no mesmo instante
+        // e na mesma velocidade que tinha dentro da precomp. Ordem importa:
+        // stretch primeiro (reescala tudo em torno do inPoint atual), depois
+        // startTime (desloca o layer já reescalado para o lugar certo).
+        for (var p = 0; p < pasted.length; p++) {
+            try {
+                pasted[p].stretch = wrapperStretch;
+                pasted[p].startTime = wrapperStartTime;
+            } catch (e) {}
+        }
+
+        // Recorta pra bater com o trim (in/out) que a camada de precomp tinha.
+        for (var q = 0; q < pasted.length; q++) {
+            try {
+                if (pasted[q].inPoint < wrapperInPoint) pasted[q].inPoint = wrapperInPoint;
+                if (pasted[q].outPoint > wrapperOutPoint) pasted[q].outPoint = wrapperOutPoint;
+            } catch (e) {}
+        }
+
+        // Reaplica parenting/track matte/blend mode da camada-wrapper nas
+        // camadas extraídas que não tinham pai dentro da própria precomp —
+        // essas são as que, de fora, ocupavam o "lugar" da camada removida
+        // nessas relações. Uma camada que já tinha pai internamente
+        // (ex.: parentada a um Null que também veio da precomp) fica como
+        // estava, preservando a hierarquia interna.
+        for (var r = 0; r < pasted.length; r++) {
+            var pl = pasted[r];
+            var temPaiInterno = false;
+            try { temPaiInterno = !!pl.parent; } catch (e) {}
+            if (temPaiInterno) continue;
+
+            try { if (wrapperParent) pl.parent = wrapperParent; } catch (e) {}
+            try {
+                if (wrapperTrackMatteLayer) pl.setTrackMatte(wrapperTrackMatteLayer, wrapperTrackMatteType);
+            } catch (e) {}
+            try { if (wrapperBlendingMode !== null) pl.blendingMode = wrapperBlendingMode; } catch (e) {}
+        }
+
         layer.remove();
 
-        for (var k = 0; k < pasted.length; k++) flattenLayer(pasted[k], c, cmdCopy, cmdPaste, cmdClose);
+        if (recursivo) {
+            for (var k = 0; k < pasted.length; k++) flattenLayer(pasted[k], c, cmdCopy, cmdPaste, cmdClose, recursivo);
+        }
     }
 
     function precompExtractor() {
         var c = comp();
-        if (!c) { alert("Selecione uma composição ativa."); return; }
+        if (!c) { alert("Select an active composition."); return; }
 
         var selected = c.selectedLayers.slice();
-        if (selected.length === 0) { alert("Selecione uma ou mais camadas de precomp."); return; }
+        if (selected.length === 0) { alert("Select one or more precomp layers."); return; }
 
         var cmdCopy = acharComando(["Copy"]);
         var cmdPaste = acharComando(["Paste"]);
         var cmdClose = acharComando(["Close"]);
         if (!cmdCopy || !cmdPaste || !cmdClose) {
-            alert("Comandos de menu Copy/Paste/Close não encontrados.");
+            alert("Copy/Paste/Close menu commands not found.");
             return;
         }
 
+        var recursivo = precompExtractorRecursivo;
         app.beginUndoGroup("Precomp Extractor");
         try {
-            for (var i = 0; i < selected.length; i++) flattenLayer(selected[i], c, cmdCopy, cmdPaste, cmdClose);
+            for (var i = 0; i < selected.length; i++) flattenLayer(selected[i], c, cmdCopy, cmdPaste, cmdClose, recursivo);
         } finally {
             app.endUndoGroup();
         }
@@ -1065,7 +1301,7 @@
 
     function layerOrganizer() {
         var c = comp();
-        if (!c) { alert("Abra a composição que você quer reorganizar."); return; }
+        if (!c) { alert("Open the composition you want to reorganize."); return; }
 
         var n = c.numLayers;
         if (n <= 1) return;
@@ -1106,22 +1342,148 @@
     }
 
     // ============================================================
+    // TIME REMAP — Hold Keyframe (converte qualquer keyframe selecionado
+    // em hold, em qualquer propriedade)
+    // ============================================================
+
+    function holdKeyframes() {
+        var c = comp();
+        if (!c) return;
+
+        var props = c.selectedProperties;
+        var aplicado = false;
+
+        app.beginUndoGroup("Hold Keyframe");
+        for (var i = 0; i < props.length; i++) {
+            var p = props[i];
+            if (p.propertyType !== PropertyType.PROPERTY || p.numKeys === 0) continue;
+            var keys = p.selectedKeys;
+            if (!keys || keys.length === 0) continue;
+            for (var k = 0; k < keys.length; k++) {
+                try {
+                    p.setInterpolationTypeAtKey(
+                        keys[k],
+                        KeyframeInterpolationType.HOLD,
+                        KeyframeInterpolationType.HOLD
+                    );
+                    aplicado = true;
+                } catch (e) {}
+            }
+        }
+        app.endUndoGroup();
+
+        if (!aplicado) alert("Select one or more keyframes in the Timeline.");
+    }
+
+    // ============================================================
     // UI
     // ============================================================
 
     function buildUI(thisObj) {
         var win = (thisObj instanceof Panel) ? thisObj : new Window("palette", "AE Toolkit", undefined, { resizeable: true });
         win.orientation = "column";
-        win.alignChildren = ["fill", "top"];
-        win.spacing = 8;
-        win.margins = 10;
+        win.alignChildren = ["fill", "fill"];
+        win.spacing = 0;
+        win.margins = 0;
+
+        // ATUALIZAR sempre que adicionar/remover grupo ou linha de botão
+        // (addGrupo/addLinha) neste buildUI: são os únicos números usados
+        // para estimar a altura do conteúdo e calibrar a Scrollbar abaixo.
+        // NUNCA calcule isso lendo o tamanho real dos controles em tempo de
+        // execução (.size/.preferredSize) — isso já quebrou o painel
+        // inteiro numa tentativa anterior. É melhor sobrar um pouco de
+        // espaço vazio no fim do scroll do que arriscar quebrar de novo.
+        var NUM_GRUPOS = 5;  // Project, Cleanup, Time Remap, Curves, Layers
+        var NUM_LINHAS = 7;  // total de addLinha(...) chamadas, somando todos os grupos
+
+        // Estimativa estática da altura total do conteúdo: título+margens
+        // de cada painel de grupo, altura de cada linha de botão (26px +
+        // 4px de espaçamento), espaço entre grupos (8px) e margens do
+        // container de scroll (10px em cima/embaixo).
+        var ALTURA_LINHA = 26 + 4;
+        var ALTURA_EXTRA_POR_GRUPO = 40; // título + margens do panel
+        var ESPACO_ENTRE_GRUPOS = 8;
+        var ALTURA_CONTEUDO_ESTIMADA =
+            NUM_GRUPOS * ALTURA_EXTRA_POR_GRUPO +
+            NUM_LINHAS * ALTURA_LINHA +
+            (NUM_GRUPOS - 1) * ESPACO_ENTRE_GRUPOS +
+            20; // margens do scroll
+
+        // O limite da Scrollbar não é a altura total do conteúdo — é o
+        // quanto ainda falta rolar depois que o viewport (área visível) já
+        // mostrou sua parte. Como não podemos ler a altura real do viewport
+        // (é isso que quebrou o painel antes), assumimos um viewport mínimo
+        // razoável e descontamos daqui. Se sobrar espaço vazio no fim do
+        // scroll numa dock bem pequena, reduza ALTURA_VIEWPORT_ASSUMIDA.
+        var ALTURA_VIEWPORT_ASSUMIDA = 220;
+        var MAX_SCROLL = Math.max(40, ALTURA_CONTEUDO_ESTIMADA - ALTURA_VIEWPORT_ASSUMIDA);
+
+        // Estrutura de scroll manual (o host do AE não suporta contêiner com
+        // scroll nativo): "viewport" (stack) recorta por clipping nativo um
+        // "scroll" maior que ele, deslocado via .location; uma Scrollbar
+        // fina ao lado controla esse deslocamento — arrastando ou pela roda
+        // do mouse. O limite da barra é a estimativa estática acima, NUNCA
+        // lida em tempo real (ver comentário lá em cima).
+        var scrollRow = win.add("group");
+        scrollRow.orientation = "row";
+        scrollRow.alignChildren = ["fill", "fill"];
+        scrollRow.spacing = 2;
+        scrollRow.margins = 0;
+
+        var viewport = scrollRow.add("group");
+        viewport.orientation = "stack";
+        viewport.alignment = ["fill", "fill"];
+
+        var scroll = viewport.add("group");
+        scroll.orientation = "column";
+        scroll.alignChildren = ["fill", "top"];
+        scroll.alignment = ["fill", "top"];
+        scroll.spacing = 8;
+        scroll.margins = 10;
+
+        var sbar = scrollRow.add("scrollbar", undefined, 0, 0, MAX_SCROLL);
+        sbar.preferredSize.width = 9;
+        sbar.alignment = ["right", "fill"];
+        sbar.stepdelta = 25;
+        sbar.jumpdelta = 120;
+        sbar.onChanging = sbar.onChange = function () {
+            scroll.location = [0, -sbar.value];
+        };
+
+        function rolar(passos) {
+            var novo = sbar.value + passos * sbar.stepdelta;
+            if (novo < sbar.minvalue) novo = sbar.minvalue;
+            if (novo > sbar.maxvalue) novo = sbar.maxvalue;
+            sbar.value = novo;
+            scroll.location = [0, -sbar.value];
+        }
+
+        // wheelDelta positivo (Windows) = roda pra cima = ver conteúdo
+        // acima = diminui o scroll. Não lê tamanho de nada em tempo real —
+        // só usa os valores já fixos da Scrollbar. Tenta os dois nomes de
+        // evento (hosts variam) e é chamada em CADA controle (painel de
+        // grupo, linha, botão) porque a roda pode não borbulhar dos filhos
+        // até os pais nesse host.
+        function handlerRoda(ev) {
+            var delta = (ev.wheelDelta !== undefined) ? ev.wheelDelta : -(ev.detail || 0) * 40;
+            rolar(delta > 0 ? -1 : 1);
+            if (ev.preventDefault) ev.preventDefault();
+        }
+        function ligarRoda(el) {
+            try { el.addEventListener("mousewheel", handlerRoda); } catch (e) {}
+            try { el.addEventListener("wheel", handlerRoda); } catch (e) {}
+        }
+        ligarRoda(win);
+        ligarRoda(viewport);
+        ligarRoda(scroll);
 
         function addGrupo(titulo) {
-            var p = win.add("panel", undefined, titulo);
+            var p = scroll.add("panel", undefined, titulo);
             p.orientation = "column";
             p.alignChildren = ["fill", "top"];
             p.margins = [10, 16, 10, 10];
             p.spacing = 4;
+            ligarRoda(p);
             return p;
         }
 
@@ -1130,64 +1492,81 @@
             g.orientation = "row";
             g.alignChildren = ["fill", "center"];
             g.spacing = 4;
+            ligarRoda(g);
             return g;
         }
 
-        function addBtn(linha, icone, label, tip, fn) {
-            var b = linha.add("button", undefined, icone + "  " + label);
+        function addBtn(linha, label, tip, fn) {
+            var b = linha.add("button", undefined, label);
             b.preferredSize = [128, 26];
             if (tip) b.helpTip = tip;
+            ligarRoda(b);
             b.onClick = function () {
-                try { fn(); } catch (e) { alert(label + " — erro:\n" + e.toString()); }
+                try { fn(); } catch (e) { alert(label + " — error:\n" + e.toString()); }
             };
             return b;
         }
 
-        // --- Projeto ---
-        var gProjeto = addGrupo("Projeto");
-        var l1 = addLinha(gProjeto);
-        addBtn(l1, "🗂", "Declutter", "Organiza o Project Panel em pastas por tipo, conforme a estrutura configurada (botão ao lado).", declutter);
-        addBtn(l1, "⚙", "Editar Estrutura", "Edita as categorias/pastas do Declutter (nome + extensões).", editarEstruturaDeclutter);
-        var l2 = addLinha(gProjeto);
-        addBtn(l2, "🗜", "Reduce Project", "Reduz o projeto às comps selecionadas no Project Panel (ou à comp ativa). Fecha abas órfãs depois.", reduceProject);
-        addBtn(l2, "🧹", "Remove Unused", "Remove footage não utilizada no projeto.", removeUnusedFootage);
+        var versaoLabel = scroll.add("statictext", undefined, "AE Toolkit Panel v" + TOOLKIT_VERSION);
+        versaoLabel.alignment = ["fill", "top"];
+        ligarRoda(versaoLabel);
 
-        // --- Limpeza ---
-        var gLimpeza = addGrupo("Limpeza");
+        // --- Project ---
+        var gProjeto = addGrupo("Project");
+        var l1 = addLinha(gProjeto);
+        addBtn(l1, "Tidy", "Organizes the Project Panel into folders by type, following the configured structure (button next to it). Only creates folders for file types actually present in the project.", declutter);
+        addBtn(l1, "Edit Structure", "Edits the Tidy categories/folders (name + extensions).", editarEstruturaDeclutter);
+        var l2 = addLinha(gProjeto);
+        addBtn(l2, "Reduce Project", "Reduces the project to the comps selected in the Project Panel (or the active comp). Closes orphan tabs afterwards.", reduceProject);
+        addBtn(l2, "Remove Unused", "Removes unused footage from the project.", removeUnusedFootage);
+
+        // --- Cleanup ---
+        var gLimpeza = addGrupo("Cleanup");
         var l3 = addLinha(gLimpeza);
-        addBtn(l3, "✕", "Limpar Expressões", "Remove todas as expressões das camadas selecionadas.", limparExpressoes);
-        addBtn(l3, "↺", "Reset Layer", "Remove efeitos, expressões e layer styles, e volta Transform aos valores padrão.", resetarLayer);
+        addBtn(l3, "Clear Expressions", "Removes all expressions from the selected layers.", limparExpressoes);
+        addBtn(l3, "Reset Layer", "Removes effects, expressions and layer styles, and resets Transform to its default values.", resetarLayer);
 
         // --- Time Remap ---
         var gRemap = addGrupo("Time Remap");
         var l4 = addLinha(gRemap);
-        addBtn(l4, "⏸", "Hold Time Remap", "Cria hold no Time Remap a partir do CTI e apaga o último keyframe (evita puxar de volta no fim).", holdTimeRemap);
+        addBtn(l4, "Hold Time Remap", "Creates a hold in Time Remap at the CTI and deletes the last keyframe (prevents it from pulling back at the end).", holdTimeRemap);
+        addBtn(l4, "Hold Keyframe", "Turns any selected keyframe(s), on any property, into a hold keyframe.", holdKeyframes);
 
-        // --- Curvas ---
-        var gCurvas = addGrupo("Curvas");
+        // --- Curves ---
+        var gCurvas = addGrupo("Curves");
         var l5 = addLinha(gCurvas);
-        addBtn(l5, "▤", "Copiar Curva", "Copia interpolação/ease dos keyframes selecionados (ou de todas as propriedades animadas).", copiarCurva);
-        addBtn(l5, "▥", "Colar Curva", "Cola a curva copiada nos keyframes selecionados.", colarCurva);
+        addBtn(l5, "Copy Curve", "Copies interpolation/ease from the selected keyframes (or from all animated properties).", copiarCurva);
+        addBtn(l5, "Paste Curve", "Pastes the copied curve onto the selected keyframes.", colarCurva);
 
-        // --- Camadas ---
-        var gCamadas = addGrupo("Camadas");
+        // --- Layers ---
+        var gCamadas = addGrupo("Layers");
         var l6 = addLinha(gCamadas);
-        addBtn(l6, "T↔", "Layer Normalize", "Zera a escala de camadas de texto, absorvendo o valor no tamanho da fonte.", layerNormalize);
-        addBtn(l6, "✂", "Quebrar Shapes", "Separa shape layers em objetos, e converte camadas de PSD/vetor em shapes separados por camada.", quebrarShapes);
+        addBtn(l6, "Layer Normalize", "Zeroes out the scale of text layers, absorbing the value into font size.", layerNormalize);
+        addBtn(l6, "Split Shapes", "Splits shape layers into separate objects, and converts PSD/vector layers into shapes split per layer.", quebrarShapes);
         var l7 = addLinha(gCamadas);
-        addBtn(l7, "⛶", "Precomp Extractor", "Traz os layers de uma precomp (e das aninhadas) para a comp atual.", precompExtractor);
-        addBtn(l7, "☰", "Layer Organizer", "Reordena camadas pela posição horizontal na timeline.", layerOrganizer);
+        addBtn(l7, "Precomp Extractor", "Brings the layers of a precomp (and nested ones) up into the current comp.", precompExtractor);
+        addBtn(l7, "Layer Organizer", "Reorders layers by their horizontal position in the timeline.", layerOrganizer);
+        var cbRecursivo = gCamadas.add("checkbox", undefined, "Extract nested precomps too");
+        cbRecursivo.value = precompExtractorRecursivo;
+        cbRecursivo.helpTip = "Checked: unwraps precomps inside precomps too (current behavior). Unchecked: Precomp Extractor only unwraps the first level.";
+        cbRecursivo.onClick = function () { precompExtractorRecursivo = cbRecursivo.value; };
+        ligarRoda(cbRecursivo);
 
         win.layout.layout(true);
         win.layout.resize();
+        // Precisa valer tanto pra janela flutuante quanto pro painel
+        // encaixado: ao encaixar/redimensionar a dock, o AE dispara resize
+        // no Panel também, e sem recalcular o layout aqui os grupos ficavam
+        // com o tamanho do primeiro layout (calculado antes de a dock ter
+        // a largura definitiva), deixando os botões sem texto/cortados.
+        win.onResizing = win.onResize = function () { this.layout.resize(); };
         if (win instanceof Window) {
-            win.onResizing = win.onResize = function () { this.layout.resize(); };
             win.center();
             win.show();
         }
         return win;
     }
 
-    buildUI(this);
+    buildUI(thisObj);
 
-})();
+})(this);
