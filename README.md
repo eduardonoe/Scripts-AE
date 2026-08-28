@@ -4,7 +4,10 @@ Repositorio de scripts e extensoes para Adobe After Effects.
 
 ## Projetos atuais
 
+- `AE Toolkit Panel/`: painel unico de ScriptUI (encaixavel ou janela flutuante) com um conjunto de ferramentas do dia a dia — Tidy (organizador do Project Panel), Reduce Project, Remove Unused Footage, Clear Expressions, Reset Layer, Hold Time Remap, Hold Keyframe, Copy/Paste Curve, Layer Normalize, Split Shapes, Precomp Extractor e Layer Organizer. Substitui o Declutter antigo e os scripts avulsos que antes viviam em `_Run Scripts/`.
 - `Layer Direction/`: script e extensao CEP do Layer Direction.
+- `Momentum/`: stretch & squash orientado a velocidade e assistentes de keyframe (CEP + ScriptUI).
+- `Precomp Extractor/`: script standalone original de extracao de precomp. Superado pela versao integrada e mais completa dentro de `AE Toolkit Panel/` (preserva timing/parenting/track matte/blend mode, e tem opcao de desempacotar so o primeiro nivel); mantido aqui por historico.
 - `Swatch Colors/`: extensao CEP para extrair, salvar e aplicar paletas da composicao ativa.
 - `Text Splitter/`: script para dividir textos em letras, palavras ou linhas.
 
