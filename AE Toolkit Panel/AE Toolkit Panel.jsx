@@ -1,7 +1,7 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.0.1
+    Version: 1.0.2
 
     Painel único com um conjunto de ferramentas do dia a dia, centralizando
     scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
@@ -45,11 +45,16 @@
       pelo Tidy é reauditado e corrigido se estiver na categoria errada;
       pastas criadas à mão pelo usuário em outro lugar do projeto continuam
       intocadas. Além disso, novo checkbox "Reorganize entire project" no
-      grupo Project: desligado (padrão) mantém esse comportamento
-      conservador; ligado, reclassifica TODO item do projeto, não importa
+      grupo Project: ligado, reclassifica TODO item do projeto, não importa
       a profundidade/pasta atual, e apaga qualquer pasta que fique vazia
       depois — útil pra achatar de vez um projeto legado bagunçado (ex.:
       pastas soltas com estrutura de .aep importado, sem valor de manter).
+      Desligado, volta ao comportamento conservador (só raiz + pastas que
+      o próprio Tidy administra).
+    - 1.0.2: checkbox "Reorganize entire project" passa a vir MARCADO por
+      padrão (era desmarcado) — o valor não persistia entre sessões do AE
+      de qualquer forma (variável em memória, não salva em app.settings),
+      então o padrão marcado é o comportamento mais útil na prática.
 */
 (function (thisObj) {
 
@@ -58,8 +63,8 @@
     // ============================================================
     var easyCurveClipboard = null;
     var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
-    var tidyVarrerProjetoInteiro = false; // checkbox "Reorganize entire project" na UI
-    var TOOLKIT_VERSION = "1.0.1"; // mantido em sincronia com o "Version:" do cabeçalho
+    var tidyVarrerProjetoInteiro = true; // checkbox "Reorganize entire project" na UI
+    var TOOLKIT_VERSION = "1.0.2"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -1599,7 +1604,7 @@
         addBtn(l2, "Remove Unused", "Removes unused footage from the project.", removeUnusedFootage);
         var cbVarrerTudo = gProjeto.add("checkbox", undefined, "Reorganize entire project");
         cbVarrerTudo.value = tidyVarrerProjetoInteiro;
-        cbVarrerTudo.helpTip = "Unchecked (default): Tidy only touches items loose at the project root, or already inside a folder it manages — safe on projects with intentional custom folders. Checked: Tidy reclassifies EVERY item everywhere (any nesting level) and deletes any folder left empty afterwards — use to fully flatten a messy/legacy project structure.";
+        cbVarrerTudo.helpTip = "Checked (default): Tidy reclassifies EVERY item everywhere (any nesting level) and deletes any folder left empty afterwards. Unchecked: Tidy only touches items loose at the project root, or already inside a folder it manages — use this if the project has intentional custom folders you don't want touched.";
         cbVarrerTudo.onClick = function () { tidyVarrerProjetoInteiro = cbVarrerTudo.value; };
         ligarRoda(cbVarrerTudo);
 
