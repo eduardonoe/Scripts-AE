@@ -1,7 +1,7 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.0.0
+    Version: 1.0.1
 
     Painel único com um conjunto de ferramentas do dia a dia, centralizando
     scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
@@ -34,6 +34,22 @@
 
     Este arquivo cresce com o tempo — novos botões entram nos grupos
     existentes ou em grupos novos, mantendo o mesmo padrão.
+
+    Changelog:
+    - 1.0.1: Tidy deixava itens mal organizados sem correção quando já
+      estavam dentro de uma das pastas que ele mesmo administra (ex.: um
+      vídeo dentro de "_PreComps", que deveria conter só comps, ficava
+      preso lá pra sempre porque a regra "não mexe em item já organizado"
+      também protegia itens fora de lugar dentro das próprias pastas do
+      Tidy) — corrigido: qualquer item já dentro de uma pasta gerenciada
+      pelo Tidy é reauditado e corrigido se estiver na categoria errada;
+      pastas criadas à mão pelo usuário em outro lugar do projeto continuam
+      intocadas. Além disso, novo checkbox "Reorganize entire project" no
+      grupo Project: desligado (padrão) mantém esse comportamento
+      conservador; ligado, reclassifica TODO item do projeto, não importa
+      a profundidade/pasta atual, e apaga qualquer pasta que fique vazia
+      depois — útil pra achatar de vez um projeto legado bagunçado (ex.:
+      pastas soltas com estrutura de .aep importado, sem valor de manter).
 */
 (function (thisObj) {
 
@@ -42,7 +58,8 @@
     // ============================================================
     var easyCurveClipboard = null;
     var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
-    var TOOLKIT_VERSION = "1.0.0"; // mantido em sincronia com o "Version:" do cabeçalho
+    var tidyVarrerProjetoInteiro = false; // checkbox "Reorganize entire project" na UI
+    var TOOLKIT_VERSION = "1.0.1"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -225,12 +242,60 @@
         return { nome: "Others" };
     }
 
+    function acharPastaExistente(nome, pastaPaiNome) {
+        var parent = app.project.rootFolder;
+        if (pastaPaiNome) {
+            var pai = null;
+            for (var i = 1; i <= app.project.numItems; i++) {
+                var it = app.project.item(i);
+                if (it instanceof FolderItem && it.parentFolder === app.project.rootFolder && it.name === pastaPaiNome) {
+                    pai = it;
+                    break;
+                }
+            }
+            if (!pai) return null;
+            parent = pai;
+        }
+        for (var j = 1; j <= app.project.numItems; j++) {
+            var it2 = app.project.item(j);
+            if (it2 instanceof FolderItem && it2.parentFolder === parent && it2.name === nome) return it2;
+        }
+        return null;
+    }
+
+    // Pastas (já existentes) que o Tidy administra: as categorias
+    // configuradas + "Others". Usado para permitir corrigir um item que
+    // esteja numa dessas pastas mas na categoria ERRADA (ex.: um vídeo
+    // dentro de "_PreComps" por engano/versão antiga) sem mexer em pastas
+    // que o usuário criou por conta própria em outro lugar do projeto.
+    function pastasGerenciadasPeloTidy(categorias) {
+        var pastas = [];
+        for (var i = 0; i < categorias.length; i++) {
+            var f = acharPastaExistente(categorias[i].nome, categorias[i].pasta);
+            if (f) pastas.push(f);
+        }
+        var others = acharPastaExistente("Others", null);
+        if (others) pastas.push(others);
+        return pastas;
+    }
+
+    function estaEmPastaGerenciada(item, pastasGerenciadas) {
+        for (var i = 0; i < pastasGerenciadas.length; i++) {
+            if (item.parentFolder === pastasGerenciadas[i]) return true;
+        }
+        return false;
+    }
+
     // Apaga pastas de categoria que ficaram sem nenhum item — cobre tanto
     // categorias sem arquivo daquele tipo no projeto quanto pastas vazias
     // deixadas por uma execução anterior com arquivos que já foram
     // removidos/movidos. Duas passadas: a segunda pega containers (Assets,
     // _Comps) que só esvaziam depois que suas subpastas somem na primeira.
-    function removerPastasVaziasDeCategorias(categorias) {
+    // varrerTudo=true (opção "Reorganize entire project"): remove QUALQUER
+    // pasta que fique vazia no projeto, não só as de nome conhecido — é o
+    // que faz sobras antigas (ex.: uma pasta "Nome do Projeto.aep" que só
+    // continha bagunça já redistribuída) desaparecerem sozinhas.
+    function removerPastasVaziasDeCategorias(categorias, varrerTudo) {
         // "Precomps"/"Comps" (sem underscore): nomes usados por versões
         // antigas do Tidy, antes da estrutura aninhada atual. Ficam vazias
         // depois que as comps saem de lá, e são removidas junto.
@@ -240,10 +305,10 @@
             if (categorias[i].pasta) nomes[categorias[i].pasta] = true;
         }
 
-        for (var pass = 0; pass < 2; pass++) {
+        for (var pass = 0; pass < 3; pass++) {
             for (var idx = app.project.numItems; idx >= 1; idx--) {
                 var it = app.project.item(idx);
-                if (it instanceof FolderItem && nomes[it.name] && it.numItems === 0) {
+                if (it instanceof FolderItem && it.numItems === 0 && (varrerTudo || nomes[it.name])) {
                     try { it.remove(); } catch (e) {}
                 }
             }
@@ -270,19 +335,32 @@
             var total = app.project.numItems;
             for (var t = 1; t <= total; t++) itens.push(app.project.item(t));
 
+            // Pastas gerenciadas pelo Tidy, calculadas ANTES de mover
+            // qualquer item — permite reauditar itens que já estão dentro
+            // delas (mesmo na categoria errada) sem tocar em pastas que o
+            // usuário criou por conta própria em outro lugar do projeto.
+            var pastasGerenciadas = pastasGerenciadasPeloTidy(categorias);
+
+            var varrerTudo = tidyVarrerProjetoInteiro;
+
             for (var i = 0; i < itens.length; i++) {
                 try {
                     var item = itens[i];
                     // Comps são sempre reclassificadas (mesmo já estando em
                     // alguma pasta) porque "precomp ou não" pode mudar de uma
-                    // execução pra outra, e porque pastas legadas de versões
-                    // antigas do Tidy (ex.: "Precomps" solta, fora de
-                    // "_Comps") nunca seriam corrigidas se comps já
-                    // organizadas fossem puladas. Os demais tipos de item só
-                    // são tocados se ainda estiverem soltos na raiz, pra não
-                    // desfazer organização manual do usuário.
-                    var jaOrganizado = item.parentFolder !== app.project.rootFolder;
-                    if (jaOrganizado && !(item instanceof CompItem)) continue;
+                    // execução pra outra. Com "Reorganize entire project"
+                    // ligado, TODO item é reclassificado não importa onde
+                    // esteja. Sem isso, os demais tipos só são tocados se
+                    // ainda estiverem soltos na raiz OU já dentro de uma
+                    // pasta que o próprio Tidy administra (ex.: um vídeo que
+                    // ficou dentro de "_PreComps" por engano/versão antiga é
+                    // corrigido; um item numa pasta criada à mão pelo
+                    // usuário em outro lugar do projeto não é mexido).
+                    if (!varrerTudo) {
+                        var jaOrganizado = item.parentFolder !== app.project.rootFolder;
+                        var emPastaGerenciada = jaOrganizado && estaEmPastaGerenciada(item, pastasGerenciadas);
+                        if (jaOrganizado && !(item instanceof CompItem) && !emPastaGerenciada) continue;
+                    }
 
                     var categoria = categoriaDoItem(item, categorias);
                     if (!categoria) continue;
@@ -296,7 +374,7 @@
                     falhas++;
                 }
             }
-            removerPastasVaziasDeCategorias(categorias);
+            removerPastasVaziasDeCategorias(categorias, varrerTudo);
             if (falhas > 0) {
                 alert("Tidy: " + falhas + " item(s) could not be organized (left where they were).");
             }
@@ -1519,6 +1597,11 @@
         var l2 = addLinha(gProjeto);
         addBtn(l2, "Reduce Project", "Reduces the project to the comps selected in the Project Panel (or the active comp). Closes orphan tabs afterwards.", reduceProject);
         addBtn(l2, "Remove Unused", "Removes unused footage from the project.", removeUnusedFootage);
+        var cbVarrerTudo = gProjeto.add("checkbox", undefined, "Reorganize entire project");
+        cbVarrerTudo.value = tidyVarrerProjetoInteiro;
+        cbVarrerTudo.helpTip = "Unchecked (default): Tidy only touches items loose at the project root, or already inside a folder it manages — safe on projects with intentional custom folders. Checked: Tidy reclassifies EVERY item everywhere (any nesting level) and deletes any folder left empty afterwards — use to fully flatten a messy/legacy project structure.";
+        cbVarrerTudo.onClick = function () { tidyVarrerProjetoInteiro = cbVarrerTudo.value; };
+        ligarRoda(cbVarrerTudo);
 
         // --- Cleanup ---
         var gLimpeza = addGrupo("Cleanup");
