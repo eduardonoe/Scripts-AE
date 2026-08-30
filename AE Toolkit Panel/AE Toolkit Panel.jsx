@@ -1,7 +1,7 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.0.2
+    Version: 1.0.3
 
     Painel único com um conjunto de ferramentas do dia a dia, centralizando
     scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
@@ -51,6 +51,15 @@
       pastas soltas com estrutura de .aep importado, sem valor de manter).
       Desligado, volta ao comportamento conservador (só raiz + pastas que
       o próprio Tidy administra).
+    - 1.0.3: diagnóstico — o alerta final do Tidy agora lista (até 8) os
+      itens que não foram organizados, com o motivo: erro capturado no
+      try/catch, ou "nenhuma categoria configurada bateu com este item"
+      (caso silencioso que antes não gerava alerta nenhum). Relato real:
+      com "Reorganize entire project" ligado, tudo dentro de uma pasta
+      "Nome.aep" importada (comps, PNG, .mov, solid) ficou intocado
+      enquanto um item solto na raiz foi organizado normalmente — ainda
+      sem causa confirmada; esse changelog existe pra conseguir diagnosticar
+      com dado real na próxima execução, em vez de tentar corrigir às cegas.
     - 1.0.2: checkbox "Reorganize entire project" passa a vir MARCADO por
       padrão (era desmarcado) — o valor não persistia entre sessões do AE
       de qualquer forma (variável em memória, não salva em app.settings),
@@ -64,7 +73,7 @@
     var easyCurveClipboard = null;
     var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
     var tidyVarrerProjetoInteiro = true; // checkbox "Reorganize entire project" na UI
-    var TOOLKIT_VERSION = "1.0.2"; // mantido em sincronia com o "Version:" do cabeçalho
+    var TOOLKIT_VERSION = "1.0.3"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -327,6 +336,7 @@
         try {
             var pastas = {};
             var falhas = 0;
+            var detalhesFalhas = [];
 
             // Junta os itens num array ANTES de mover qualquer um: mover um
             // item para dentro de uma pasta muda a ordem/índice de exibição
@@ -368,7 +378,19 @@
                     }
 
                     var categoria = categoriaDoItem(item, categorias);
-                    if (!categoria) continue;
+                    if (!categoria) {
+                        // FolderItem sempre cai aqui de propósito (pastas não
+                        // são "categorizadas"). Pra qualquer outro tipo, é um
+                        // item que não bateu em nenhuma categoria configurada
+                        // — vale registrar pra diagnóstico.
+                        if (!(item instanceof FolderItem) && detalhesFalhas.length < 8) {
+                            var nomeSemCat = "?";
+                            try { nomeSemCat = item.name; } catch (e3) {}
+                            detalhesFalhas.push(nomeSemCat + ": nenhuma categoria configurada bateu com este item");
+                            falhas++;
+                        }
+                        continue;
+                    }
 
                     var chave = (categoria.pasta ? categoria.pasta + "/" : "") + categoria.nome;
                     if (!pastas[chave]) pastas[chave] = acharOuCriarPasta(categoria.nome, categoria.pasta);
@@ -377,11 +399,17 @@
                     // um item problemático (offline, corrompido, etc.) não pode
                     // travar a organização do resto do projeto
                     falhas++;
+                    if (detalhesFalhas.length < 8) {
+                        var nomeItem = "?";
+                        try { nomeItem = itens[i].name; } catch (e2) {}
+                        detalhesFalhas.push(nomeItem + ": " + itemErr.toString());
+                    }
                 }
             }
             removerPastasVaziasDeCategorias(categorias, varrerTudo);
             if (falhas > 0) {
-                alert("Tidy: " + falhas + " item(s) could not be organized (left where they were).");
+                alert("Tidy: " + falhas + " item(s) could not be organized (left where they were).\n\n" +
+                    detalhesFalhas.join("\n"));
             }
         } catch (e) {
             alert("Tidy — error: " + e.toString());
