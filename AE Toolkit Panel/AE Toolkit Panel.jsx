@@ -1,7 +1,7 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.0.3
+    Version: 1.0.4
 
     Painel único com um conjunto de ferramentas do dia a dia, centralizando
     scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
@@ -24,9 +24,12 @@
                    keyframe), Hold Keyframe (converte qualquer keyframe
                    selecionado, em qualquer propriedade, em hold)
       Curves     : Copy Curve, Paste Curve (interpolação/ease dos keyframes)
-      Layers     : Layer Normalize, Split Shapes (shape layer existente:
-                   ordem de criação invertida — mais antigo por último;
-                   PSD/vetor convertido: ordem espacial, linhas de baixo
+      Layers     : Layer Normalize (absorve Scale no fontSize; lida com o
+                   limite de 1296pt do AE deixando o restante em Scale),
+                   Split Shapes (shape layer existente: ordem de criação
+                   invertida — mais antigo por último; PSD com Live Text:
+                   converte pra texto editável e usa Create Shapes from
+                   Text; PSD/vetor comum: ordem espacial, linhas de baixo
                    pra cima e direita pra esquerda dentro da linha),
                    Precomp Extractor (com checkbox "Extract nested precomps
                    too" — desmarcado, desempacota só o primeiro nível),
@@ -36,21 +39,33 @@
     existentes ou em grupos novos, mantendo o mesmo padrão.
 
     Changelog:
-    - 1.0.1: Tidy deixava itens mal organizados sem correção quando já
-      estavam dentro de uma das pastas que ele mesmo administra (ex.: um
-      vídeo dentro de "_PreComps", que deveria conter só comps, ficava
-      preso lá pra sempre porque a regra "não mexe em item já organizado"
-      também protegia itens fora de lugar dentro das próprias pastas do
-      Tidy) — corrigido: qualquer item já dentro de uma pasta gerenciada
-      pelo Tidy é reauditado e corrigido se estiver na categoria errada;
-      pastas criadas à mão pelo usuário em outro lugar do projeto continuam
-      intocadas. Além disso, novo checkbox "Reorganize entire project" no
-      grupo Project: ligado, reclassifica TODO item do projeto, não importa
-      a profundidade/pasta atual, e apaga qualquer pasta que fique vazia
-      depois — útil pra achatar de vez um projeto legado bagunçado (ex.:
-      pastas soltas com estrutura de .aep importado, sem valor de manter).
-      Desligado, volta ao comportamento conservador (só raiz + pastas que
-      o próprio Tidy administra).
+    - 1.0.4: Split Shapes agora reconhece camada de PSD com Live Text
+      (texto do Photoshop, convertível em texto editável do AE via
+      Layer > Create > Convert to Editable Text). Quando é o caso, essa
+      via tem prioridade sobre vetor/Auto-trace: converte pra texto
+      editável de verdade, depois usa "Create Shapes from Text" (shape
+      por caractere) em vez de contorno aproximado de Auto-trace, e quebra
+      em sequência (assumindo que o comando gera os grupos na ordem do
+      texto — não verificado ao vivo, testar e reportar se a ordem sair
+      invertida). Camadas de PSD comuns (sem Live Text) continuam pelo
+      caminho de vetor/raster de sempre.
+      Layer Normalize ganhou uma série de correções relacionadas, achadas
+      testando com texto de PSD convertido: (1) agora avisa por que pulou
+      uma camada em vez de falhar em silêncio — motivos possíveis: não é
+      camada de texto (PSD/imagem bruta, sem "tamanho de fonte" pra
+      absorver o Scale), é camada 3D, tem Scale ou Source Text animado
+      (keyframe/expressão — reescrever cada keyframe não é suportado), ou
+      Scale zerado/negativo; (2) o try/catch que aplica a normalização de
+      verdade (fontSize, anchor, scale) também engolia erro em silêncio —
+      agora esse erro real do After Effects entra na lista do alerta;
+      (3) isso revelou o limite rígido de fontSize do AE (0.1 a 1296pt):
+      um Scale muito grande (texto criado pequeno e escalado bastante na
+      Timeline) pedia um fontSize maior que o permitido, e a operação
+      inteira falhava — agora absorve o máximo de fontSize permitido e
+      deixa o restante do fator no próprio Scale da camada, uma
+      normalização parcial em vez de falhar. O alerta final separa
+      "Skipped" (não mexeu) de "Partially normalized" (mexeu, mas não
+      100%, com o motivo).
     - 1.0.3: diagnóstico — o alerta final do Tidy agora lista (até 8) os
       itens que não foram organizados, com o motivo: erro capturado no
       try/catch, ou "nenhuma categoria configurada bateu com este item"
@@ -73,7 +88,7 @@
     var easyCurveClipboard = null;
     var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
     var tidyVarrerProjetoInteiro = true; // checkbox "Reorganize entire project" na UI
-    var TOOLKIT_VERSION = "1.0.3"; // mantido em sincronia com o "Version:" do cabeçalho
+    var TOOLKIT_VERSION = "1.0.4"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -901,53 +916,113 @@
         var layers = c.selectedLayers;
         if (!layers || layers.length === 0) return;
 
+        var pulados = [];
+        var parciais = []; // normalizado com sucesso, mas não 100% (limite de fontSize)
+
         app.beginUndoGroup("Layer Normalize");
         for (var i = 0; i < layers.length; i++) {
             var layer = layers[i];
             var textGroup = layer.property("ADBE Text Properties");
-            if (!textGroup) continue;
+            if (!textGroup) {
+                // Camada de PSD/imagem "bruta" (raster) não tem propriedade
+                // de texto nenhuma — não existe "tamanho de fonte" pra
+                // absorver o Scale. Layer Normalize só se aplica a camadas
+                // de texto de verdade do AE (Create > Convert to Editable
+                // Text primeiro, se for o caso).
+                pulados.push(layer.name + ": not a text layer (raster/PSD layers have no font size to absorb Scale into)");
+                continue;
+            }
 
             var sourceText = textGroup.property("ADBE Text Document");
             var transform = layer.property("ADBE Transform Group");
             var scaleProp = transform.property("ADBE Scale");
             var anchorProp = transform.property("ADBE Anchor Point");
 
-            if (layer.threeDLayer) continue;
-            if (scaleProp.numKeys > 0 || scaleProp.expressionEnabled) continue;
-            if (sourceText.numKeys > 0 || sourceText.expressionEnabled) continue;
+            // Não dá pra "zerar o Scale absorvendo no tamanho da fonte" com
+            // segurança quando o Scale (ou o próprio texto) está animado —
+            // exigiria reescrever cada keyframe individualmente. Registra o
+            // motivo em vez de pular calado, que deixava parecer que nada
+            // tinha acontecido sem explicação.
+            if (layer.threeDLayer) { pulados.push(layer.name + ": is a 3D layer"); continue; }
+            if (scaleProp.numKeys > 0 || scaleProp.expressionEnabled) {
+                pulados.push(layer.name + ": Scale is animated (keyframes or expression)");
+                continue;
+            }
+            if (sourceText.numKeys > 0 || sourceText.expressionEnabled) {
+                pulados.push(layer.name + ": Source Text is animated (keyframes or expression)");
+                continue;
+            }
 
             var scale = scaleProp.value;
             var sx = scale[0] / 100;
             var sy = scale[1] / 100;
-            if (sx <= 0 || sy <= 0) continue;
+            if (sx <= 0 || sy <= 0) { pulados.push(layer.name + ": Scale is zero or negative"); continue; }
 
             var wasLocked = layer.locked;
             layer.locked = false;
 
             try {
                 var doc = sourceText.value;
-                doc.fontSize = doc.fontSize * sy;
-                try { doc.horizontalScale = doc.horizontalScale * (sx / sy); } catch (e1) {}
-                try { if (!doc.autoLeading) doc.leading = doc.leading * sy; } catch (e2) {}
-                try { doc.strokeWidth = doc.strokeWidth * sy; } catch (e3) {}
-                try { doc.baselineShift = doc.baselineShift * sy; } catch (e4) {}
+
+                // O fontSize do AE tem limite rígido (0.1 a 1296pt). Se o
+                // Scale for grande demais pra absorver inteiro (texto criado
+                // pequeno e depois escalado muito na Timeline), absorve só
+                // até o limite e deixa o restante do fator na própria
+                // camada (Scale) — normalização parcial em vez de falhar.
+                var FONT_SIZE_MIN = 0.1, FONT_SIZE_MAX = 1296;
+                var fontSizeAlvo = doc.fontSize * sy;
+                var fatorSy = sy;
+                if (fontSizeAlvo > FONT_SIZE_MAX) fatorSy = FONT_SIZE_MAX / doc.fontSize;
+                else if (fontSizeAlvo < FONT_SIZE_MIN) fatorSy = FONT_SIZE_MIN / doc.fontSize;
+
+                doc.fontSize = doc.fontSize * fatorSy;
+                try { doc.horizontalScale = doc.horizontalScale * (sx / fatorSy); } catch (e1) {}
+                try { if (!doc.autoLeading) doc.leading = doc.leading * fatorSy; } catch (e2) {}
+                try { doc.strokeWidth = doc.strokeWidth * fatorSy; } catch (e3) {}
+                try { doc.baselineShift = doc.baselineShift * fatorSy; } catch (e4) {}
                 try {
                     if (doc.boxText) {
                         var box = doc.boxTextSize;
-                        doc.boxTextSize = [box[0] * sx, box[1] * sy];
+                        doc.boxTextSize = [box[0] * sx, box[1] * fatorSy];
                     }
                 } catch (e5) {}
 
                 sourceText.setValue(doc);
 
                 var anchor = anchorProp.value;
-                anchorProp.setValue([anchor[0] * sx, anchor[1] * sy]);
-                scaleProp.setValue([100, 100]);
-            } catch (err) {}
+                anchorProp.setValue([anchor[0] * sx, anchor[1] * fatorSy]);
+                // X fica em 100 (sx foi todo absorvido no horizontalScale);
+                // Y leva o que sobrou do Scale original que o fontSize não
+                // coube absorver (fica em 100 também quando não houve
+                // limite — fatorSy === sy nesse caso).
+                scaleProp.setValue([100, (sy / fatorSy) * 100]);
+                if (fatorSy !== sy) {
+                    parciais.push(layer.name + ": font size hit AE's limit (max " + FONT_SIZE_MAX +
+                        "pt) — absorbed as much as possible, left the rest (" +
+                        Math.round((sy / fatorSy) * 100) + "%) on layer Scale.");
+                }
+            } catch (err) {
+                // Antes engolia qualquer erro aqui em silêncio — a camada
+                // simplesmente não mudava, sem pista nenhuma do motivo
+                // (ex.: texto com múltiplos tamanhos/estilos por caractere,
+                // que a API TextDocument do AE não sabe editar de forma
+                // uniforme via doc.fontSize).
+                pulados.push(layer.name + ": " + err.toString());
+            }
 
             layer.locked = wasLocked;
         }
         app.endUndoGroup();
+
+        if (pulados.length > 0 || parciais.length > 0) {
+            var msg = "";
+            if (pulados.length > 0) msg += "Skipped " + pulados.length + " layer(s):\n" + pulados.join("\n");
+            if (parciais.length > 0) {
+                if (msg) msg += "\n\n";
+                msg += "Partially normalized " + parciais.length + " layer(s):\n" + parciais.join("\n");
+            }
+            alert("Layer Normalize\n\n" + msg);
+        }
     }
 
     // ============================================================
@@ -1055,6 +1130,40 @@
         var sel = c.selectedLayers;
         for (var s = 0; s < sel.length; s++) {
             if (sel[s] instanceof ShapeLayer) return sel[s];
+        }
+        return null;
+    }
+
+    // Camadas de PSD que vieram de um texto no Photoshop (Live Text)
+    // guardam esse dado e podem virar texto editável de verdade no AE
+    // (Layer > Create > Convert to Editable Text) em vez de só rasterizar/
+    // traçar como se fosse arte qualquer. Quando isso é possível, o
+    // resultado sai melhor: texto real vira shapes-por-caractere via
+    // "Create Shapes from Text", em vez de contornos aproximados de
+    // Auto-trace. Se a camada não for esse tipo de PSD, os dois comandos
+    // simplesmente não fazem efeito (layer não vira TextLayer/ShapeLayer)
+    // e a função retorna null pra cair no caminho normal (vetor/raster).
+    function tentarConverterTextoPsdEmShapes(c, layer) {
+        selecionarApenas(c, layer);
+        var cmdConverterTexto = acharComando(["Convert to Editable Text"]);
+        if (!cmdConverterTexto) return null;
+        try { app.executeCommand(cmdConverterTexto); } catch (e) { return null; }
+
+        var textLayer = null;
+        var selTexto = c.selectedLayers;
+        for (var i = 0; i < selTexto.length; i++) {
+            if (selTexto[i] instanceof TextLayer) { textLayer = selTexto[i]; break; }
+        }
+        if (!textLayer) return null;
+
+        selecionarApenas(c, textLayer);
+        var cmdShapesDoTexto = acharComando(["Create Shapes from Text"]);
+        if (!cmdShapesDoTexto) return null;
+        try { app.executeCommand(cmdShapesDoTexto); } catch (e) { return null; }
+
+        var selShapes = c.selectedLayers;
+        for (var j = 0; j < selShapes.length; j++) {
+            if (selShapes[j] instanceof ShapeLayer) return selShapes[j];
         }
         return null;
     }
@@ -1246,6 +1355,19 @@
                     var novas = splitShapeLayerCore(c, layer, "criacao");
                     if (novas.length > 1) { quebrados++; gruposSeparados += novas.length; }
                 } else if (layer instanceof AVLayer && layer.source) {
+                    // Texto de PSD (Live Text) convertível em texto editável
+                    // do AE tem prioridade: vira texto de verdade e depois
+                    // shapes por caractere, em vez de contorno aproximado de
+                    // Auto-trace. Se a camada não for esse tipo de PSD, os
+                    // comandos não têm efeito e isso volta null.
+                    var novoShapeDeTexto = tentarConverterTextoPsdEmShapes(c, layer);
+                    if (novoShapeDeTexto) {
+                        psdConvertidos++;
+                        var novasTexto = splitShapeLayerCore(c, novoShapeDeTexto, "criacao");
+                        if (novasTexto.length > 1) gruposSeparados += novasTexto.length;
+                        continue;
+                    }
+
                     var novoShape = tentarCriarShapesDoVetor(c, layer);
                     var dbg = {};
                     if (!novoShape) novoShape = converterRasterParaShapes(c, layer, dbg);
@@ -1658,7 +1780,7 @@
         var gCamadas = addGrupo("Layers");
         var l6 = addLinha(gCamadas);
         addBtn(l6, "Layer Normalize", "Zeroes out the scale of text layers, absorbing the value into font size.", layerNormalize);
-        addBtn(l6, "Split Shapes", "Splits shape layers into separate objects, and converts PSD/vector layers into shapes split per layer.", quebrarShapes);
+        addBtn(l6, "Split Shapes", "Splits shape layers into separate objects, and converts PSD/vector layers into shapes split per layer. PSD Live Text layers are converted to real editable text first, then split into per-character shapes.", quebrarShapes);
         var l7 = addLinha(gCamadas);
         addBtn(l7, "Precomp Extractor", "Brings the layers of a precomp (and nested ones) up into the current comp.", precompExtractor);
         addBtn(l7, "Layer Organizer", "Reorders layers by their horizontal position in the timeline.", layerOrganizer);
