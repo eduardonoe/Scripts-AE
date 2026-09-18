@@ -10,6 +10,7 @@ Repositorio de scripts e extensoes para Adobe After Effects.
 - `Precomp Extractor/`: script standalone original de extracao de precomp. Superado pela versao integrada e mais completa dentro de `AE Toolkit Panel/` (preserva timing/parenting/track matte/blend mode, e tem opcao de desempacotar so o primeiro nivel); mantido aqui por historico.
 - `Swatch Colors/`: extensao CEP para extrair, salvar e aplicar paletas da composicao ativa.
 - `Text Splitter/`: script para dividir textos em letras, palavras ou linhas.
+- `Text Swap/`: script de troca de textos (em definicao).
 
 ## Regra principal
 
