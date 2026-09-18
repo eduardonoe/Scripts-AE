@@ -1,6 +1,6 @@
 /*
     Text Swap
-    Version: 0.2.0
+    Version: 0.4.0
     Author: Eduardo Noe
 
     Troca o estilo de uma layer de texto (TL1) pelo estilo de outra (TL2)
@@ -10,12 +10,22 @@
 
     Uso:
     1. Crie TL1 (estilo inicial) e TL2 (estilo final) com o mesmo texto.
-    2. Selecione TL1 e depois TL2 (ordem de selecao importa).
-    3. Clique Animate. TL2 vira referencia (oculta) e TL1 recebe o rig.
+    2. Deixe TL2 acima de TL1 e selecione as duas (em qualquer ordem),
+       ou nao selecione nada se a comp tiver so essas 2 layers de texto.
+    3. Rode o script. TL2 vira referencia (oculta) e TL1 recebe o rig.
+    4. Rodar com so a TL1 (com rig) selecionada remove o rig.
 
     Estilos copiados de TL2: fonte, tamanho, faux bold/italic, all caps,
     small caps, tracking, escala H/V, baseline shift, fill e stroke.
 
+    v0.4.0 changelog:
+    - Vira script comum (File > Scripts), sem painel. Rodar = Animate com
+      padroes; rodar com 1 layer com rig selecionada = Remove.
+    v0.3.0 changelog:
+    - Detecta TL1/TL2 sozinho: layer com rig ou a de baixo e TL1; sem selecao
+      usa as 2 layers de texto da comp.
+    v0.2.1 changelog:
+    - Nao renomeia mais as layers; o rig depende so do Layer Control.
     v0.2.0 changelog:
     - Primeira implementacao: rig de swap com Based On (Character/Word/Line),
       Order (Left->Right, Right->Left, Center Out, Edges In, Random) e Remove.
@@ -23,9 +33,9 @@
     - Estrutura inicial do script.
 */
 
-(function TextSwap(thisObj) {
+(function TextSwap() {
     var SCRIPT_NAME = "Text Swap";
-    var SCRIPT_VERSION = "0.2.0";
+    var SCRIPT_VERSION = "0.4.0";
 
     var FX_TARGET = "Swap - Target";
     var FX_ANIM = "Swap - Animation";
@@ -83,6 +93,21 @@
 
     function isTextLayer(l) { return l && l instanceof TextLayer; }
 
+    // Escolhe TL1/TL2 sem depender de ordem de selecao nem de nome:
+    // a layer que ja tem o rig e TL1; senao TL1 e a de baixo e TL2 a de cima
+    // (mesma arrumacao que o Animate deixa, entao rodar de novo nao inverte).
+    function pickLayers(comp) {
+        var c = [], i;
+        for (i = 0; i < comp.selectedLayers.length; i++) if (isTextLayer(comp.selectedLayers[i])) c.push(comp.selectedLayers[i]);
+        if (c.length === 0) for (i = 1; i <= comp.numLayers; i++) if (isTextLayer(comp.layer(i))) c.push(comp.layer(i));
+        if (c.length !== 2) return null;
+        var fx0 = c[0].property("ADBE Effect Parade").property(FX_TARGET);
+        var fx1 = c[1].property("ADBE Effect Parade").property(FX_TARGET);
+        if (fx0 && !fx1) return [c[0], c[1]];
+        if (fx1 && !fx0) return [c[1], c[0]];
+        return c[0].index > c[1].index ? [c[0], c[1]] : [c[1], c[0]];
+    }
+
     function removeRig(layer) {
         var fx = layer.property("ADBE Effect Parade");
         for (var i = fx.numProperties; i >= 1; i--) {
@@ -111,12 +136,12 @@
     function animate(opts) {
         var comp = app.project.activeItem;
         if (!(comp instanceof CompItem)) { alert("Abra uma composicao."); return; }
-        var sel = comp.selectedLayers;
-        if (sel.length !== 2 || !isTextLayer(sel[0]) || !isTextLayer(sel[1])) {
-            alert("Selecione 2 layers de texto: primeiro TL1 (estilo inicial), depois TL2 (estilo final).");
+        var pair = pickLayers(comp);
+        if (!pair) {
+            alert("Selecione 2 layers de texto (ou deixe a comp com so 2 layers de texto).");
             return;
         }
-        var tl1 = sel[0], tl2 = sel[1];
+        var tl1 = pair[0], tl2 = pair[1];
         var v1 = tl1.property("ADBE Text Properties").property("ADBE Text Document").value.text;
         var v2 = tl2.property("ADBE Text Properties").property("ADBE Text Document").value.text;
 
@@ -146,9 +171,7 @@
             tl1.property("ADBE Text Properties").property("ADBE Text Document").expression = buildExpression();
 
             tl2.enabled = false;
-            tl2.moveBefore(tl1) ;
-            if (tl1.name.indexOf("TL1") !== 0) tl1.name = "TL1 - " + tl1.name;
-            if (tl2.name.indexOf("TL2") !== 0) tl2.name = "TL2 - " + tl2.name;
+            tl2.moveBefore(tl1);
         } catch (err) {
             alert(SCRIPT_NAME + " erro: " + err.toString());
         }
@@ -166,47 +189,12 @@
         app.endUndoGroup();
     }
 
-    function buildUI(thisObj) {
-        var win = (thisObj instanceof Panel)
-            ? thisObj
-            : new Window("palette", SCRIPT_NAME + " v" + SCRIPT_VERSION, undefined, { resizeable: true });
-        win.orientation = "column";
-        win.alignChildren = ["fill", "top"];
-        win.spacing = 6;
-        win.margins = 10;
+    // Sem painel: rodar o script ja monta o rig com os padroes
+    // (Character, Left > Right, 1s). Based On/Order mudam depois nos efeitos.
+    // Uma unica layer com rig selecionada = remove o rig.
+    var comp = app.project.activeItem;
+    var sel = (comp instanceof CompItem) ? comp.selectedLayers : [];
+    if (sel.length === 1 && isTextLayer(sel[0]) && sel[0].property("ADBE Effect Parade").property(FX_TARGET)) remove();
+    else animate({ based: 1, order: 1, duration: 1 });
+})();
 
-        win.add("statictext", undefined, "Selecione TL1 e depois TL2.");
-
-        var g1 = win.add("group");
-        g1.add("statictext", undefined, "Based On:").preferredSize.width = 70;
-        var ddBased = g1.add("dropdownlist", undefined, ["Character", "Word", "Line"]);
-        ddBased.selection = 0; ddBased.alignment = ["fill", "center"];
-
-        var g2 = win.add("group");
-        g2.add("statictext", undefined, "Order:").preferredSize.width = 70;
-        var ddOrder = g2.add("dropdownlist", undefined, ["Left > Right", "Right > Left", "Center Out", "Edges In", "Random"]);
-        ddOrder.selection = 0; ddOrder.alignment = ["fill", "center"];
-
-        var g3 = win.add("group");
-        g3.add("statictext", undefined, "Duracao (s):").preferredSize.width = 70;
-        var etDur = g3.add("edittext", undefined, "1");
-        etDur.characters = 5;
-
-        var bAnim = win.add("button", undefined, "Animate");
-        var bRem = win.add("button", undefined, "Remove Rig");
-
-        bAnim.onClick = function () {
-            var d = parseFloat(etDur.text);
-            if (isNaN(d) || d <= 0) d = 1;
-            animate({ based: ddBased.selection.index + 1, order: ddOrder.selection.index + 1, duration: d });
-        };
-        bRem.onClick = remove;
-
-        win.onResizing = win.onResize = function () { this.layout.resize(); };
-        return win;
-    }
-
-    var ui = buildUI(thisObj);
-    if (ui instanceof Window) { ui.center(); ui.show(); }
-    else { ui.layout.layout(true); }
-})(this);
