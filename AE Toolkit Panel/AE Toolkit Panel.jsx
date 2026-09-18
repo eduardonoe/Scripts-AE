@@ -1,7 +1,7 @@
 /*
     AE TOOLKIT PANEL
     After Effects JSX (ScriptUI Panel)
-    Version: 1.0.4
+    Version: 1.0.5
 
     Painel único com um conjunto de ferramentas do dia a dia, centralizando
     scripts que antes eram avulsos. Tudo nesse arquivo é autocontido —
@@ -39,6 +39,14 @@
     existentes ou em grupos novos, mantendo o mesmo padrão.
 
     Changelog:
+    - 1.0.5: Reset Layer usava um centro "esperto" de âncora — recalculado
+      pelo bounding box do conteúdo visível (ignorando padding transparente).
+      Isso não é o valor de ORIGEM de uma camada, é um valor recalculado.
+      Agora footage/precomp volta pro centro da canvas NATIVA da fonte
+      (largura/altura reais) — texto/shape (sem canvas nativa) continuam
+      centrados no conteúdo, única opção que faz sentido pra eles. A
+      posição continua compensada pelo deslocamento da âncora, ficando
+      visualmente onde estava — não pula pro centro do comp.
     - 1.0.4: Split Shapes agora reconhece camada de PSD com Live Text
       (texto do Photoshop, convertível em texto editável do AE via
       Layer > Create > Convert to Editable Text). Quando é o caso, essa
@@ -88,7 +96,7 @@
     var easyCurveClipboard = null;
     var precompExtractorRecursivo = true; // checkbox "Extract nested precomps" na UI
     var tidyVarrerProjetoInteiro = true; // checkbox "Reorganize entire project" na UI
-    var TOOLKIT_VERSION = "1.0.4"; // mantido em sincronia com o "Version:" do cabeçalho
+    var TOOLKIT_VERSION = "1.0.5"; // mantido em sincronia com o "Version:" do cabeçalho
 
     // ============================================================
     // HELPERS GERAIS
@@ -663,9 +671,56 @@
         } catch (e) {}
     }
 
+    // Âncora/posição de origem — como o AE coloca uma camada RECÉM-TRAZIDA
+    // pro comp, não uma versão "esperta" recentralizada no conteúdo visível:
+    // footage/precomp usa o centro da CANVAS NATIVA (largura/altura da
+    // fonte, ignorando padding transparente); texto/shape não têm canvas
+    // nativo, então usa o centro do conteúdo mesmo (única opção sensata).
+    // Posição vai direto pro centro do comp, sem compensar deslocamento —
+    // é reset de origem, não continuidade visual.
+    function resetarAnchorEPosicaoDeOrigem(layer, c) {
+        var transform = layer.property("ADBE Transform Group");
+        var anchorProp = transform.property("ADBE Anchor Point");
+        var posProp = transform.property("ADBE Position");
+
+        var novoAnchor = null;
+        try {
+            if (layer instanceof AVLayer && layer.source && layer.source.width && layer.source.height) {
+                novoAnchor = [layer.source.width / 2, layer.source.height / 2];
+            }
+        } catch (e) {}
+        if (!novoAnchor) {
+            try {
+                var rect = layer.sourceRectAtTime(0, false);
+                novoAnchor = [rect.left + rect.width / 2, rect.top + rect.height / 2];
+            } catch (e2) {
+                novoAnchor = [0, 0];
+            }
+        }
+
+        // Só a âncora reseta pra origem nativa — a posição fica onde está
+        // visualmente na tela (compensada pelo deslocamento da âncora), não
+        // pula pro centro do comp.
+        try {
+            var anchorAtual = anchorProp.value;
+            var posAtual = posProp.value;
+            var dx = novoAnchor[0] - anchorAtual[0];
+            var dy = novoAnchor[1] - anchorAtual[1];
+            if (layer.threeDLayer) {
+                anchorProp.setValue([novoAnchor[0], novoAnchor[1], anchorAtual[2]]);
+                posProp.setValue([posAtual[0] + dx, posAtual[1] + dy, posAtual[2]]);
+            } else {
+                anchorProp.setValue(novoAnchor);
+                posProp.setValue([posAtual[0] + dx, posAtual[1] + dy]);
+            }
+        } catch (e3) {}
+    }
+
     // Reset completo: remove fx/expressões/styles e volta Transform aos
-    // valores padrão de uma camada recém-criada (âncora no centro do
-    // conteúdo, posição no centro da comp, escala 100, rotação 0, opacidade 100).
+    // valores de origem de uma camada recém-trazida pro comp (âncora na
+    // canvas nativa da fonte — ou centro do conteúdo pra texto/shape —,
+    // posição fica onde está visualmente, escala 100, rotação 0,
+    // opacidade 100).
     function resetarLayer() {
         var c = comp();
         if (!c) return;
@@ -700,12 +755,7 @@
             try { t.property("ADBE Scale").setValue(layer.threeDLayer ? [100, 100, 100] : [100, 100]); } catch (e) {}
             try { t.property("ADBE Opacity").setValue(100); } catch (e) {}
 
-            try {
-                var pos = t.property("ADBE Position");
-                pos.setValue(layer.threeDLayer ? [c.width / 2, c.height / 2, 0] : [c.width / 2, c.height / 2]);
-            } catch (e) {}
-
-            centralizarAnchor(layer);
+            resetarAnchorEPosicaoDeOrigem(layer, c);
         }
         app.endUndoGroup();
     }
@@ -1762,7 +1812,7 @@
         var gLimpeza = addGrupo("Cleanup");
         var l3 = addLinha(gLimpeza);
         addBtn(l3, "Clear Expressions", "Removes all expressions from the selected layers.", limparExpressoes);
-        addBtn(l3, "Reset Layer", "Removes effects, expressions and layer styles, and resets Transform to its default values.", resetarLayer);
+        addBtn(l3, "Reset Layer", "Removes effects, expressions and layer styles, and resets Transform to the layer's original values (anchor on the source's native canvas for footage/precomps; position stays visually where it is, only compensated for the anchor change; scale 100, rotation 0, opacity 100).", resetarLayer);
 
         // --- Time Remap ---
         var gRemap = addGrupo("Time Remap");
