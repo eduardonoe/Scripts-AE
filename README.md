@@ -1,42 +1,33 @@
 # Scripts-AE
 
-Repositorio de scripts e extensoes para Adobe After Effects.
+Repositorio oficial de scripts, painéis, extensões e ferramentas de automação para Adobe After Effects.
 
 ## Projetos atuais
 
-- `AE Toolkit Panel/`: painel unico de ScriptUI (encaixavel ou janela flutuante) com um conjunto de ferramentas do dia a dia — Tidy (organizador do Project Panel), Reduce Project, Remove Unused Footage, Clear Expressions, Reset Layer, Hold Time Remap, Hold Keyframe, Copy/Paste Curve, Layer Normalize, Split Shapes, Precomp Extractor e Layer Organizer. Substitui o Declutter antigo e os scripts avulsos que antes viviam em `_Run Scripts/`.
-- `Layer Direction/`: script e extensao CEP do Layer Direction.
-- `Precomp Extractor/`: script standalone original de extracao de precomp. Superado pela versao integrada e mais completa dentro de `AE Toolkit Panel/` (preserva timing/parenting/track matte/blend mode, e tem opcao de desempacotar so o primeiro nivel); mantido aqui por historico.
-- `Swatch Colors/`: extensao CEP para extrair, salvar e aplicar paletas da composicao ativa.
+### Scripts & Extensões de Produção
+- `AE Toolkit Panel/`: painel único de ScriptUI (encaixável ou janela flutuante) com um conjunto de 12 ferramentas de produção do dia a dia (Tidy, Reduce Project, Remove Unused Footage, Clear Expressions, Reset Layer, Hold Time Remap, Hold Keyframe, Copy/Paste Curve, Layer Normalize, Split Shapes, Precomp Extractor e Layer Organizer).
+- `Layer Direction/`: script e extensão CEP para alinhamento e direção de camadas.
+- `Swatch Colors/`: extensão CEP para extrair, salvar e aplicar paletas da composição ativa.
 - `Text Splitter/`: script para dividir textos em letras, palavras ou linhas.
-- `_Run Scripts/Text Swap.jsx`: troca o estilo de TL1 pelo de TL2 por caractere/palavra/linha.
+- `Precomp Extractor/`: script standalone de extração de pré-composições preservando transformações.
+- `_Run Scripts/`: biblioteca de utilitários rápidos (Text Swap, Batch Comp, Faux 3D Extrusion, etc.).
 
-## Regra principal
+### Automação & MCP Bridge
+- `mcp/`: servidor Model Context Protocol (MCP) e ponte CEP para controle em tempo real do After Effects via agentes de IA.
+  - `ae-mcp-server/`: servidor Node.js MCP.
+  - `cep-bridge/`: painel de comunicação CEP com o After Effects.
+  - `skill/`: skill `after_effects_controller` para o agente.
+  - `AE-MCP-Instalador-Completo.zip`: pacote com instalador automatizado.
 
-Antes de alterar qualquer script, leia:
+## Releases
 
+Versões estáveis empacotadas para cada script e extensão individual estão disponíveis na aba [Releases](https://github.com/eduardonoe/Scripts-AE/releases).
+
+## Diretrizes de Desenvolvimento
+
+Antes de alterar qualquer script, consulte:
 1. `VERSIONING.md`
 2. `AGENTS.md`
 3. `CLAUDE.md`
 
-Esses arquivos definem o padrao compartilhado entre Codex, Claude Code e qualquer outro agente que trabalhe neste repositorio.
-
-## Fluxo recomendado
-
-1. Entender qual script sera alterado.
-2. Ler o cabecalho do `.jsx` correspondente e identificar a versao atual.
-3. Implementar a mudanca no menor escopo possivel.
-4. Atualizar a versao no cabecalho do script.
-5. Registrar um changelog curto no cabecalho quando a mudanca for relevante.
-6. Fazer commit com mensagem clara.
-7. Subir para o GitHub.
-
-## Padrao de versao
-
-O repositorio usa versionamento semantico simples:
-
-- `1.0.1`: correcao pequena, bugfix ou ajuste sem mudar o uso principal.
-- `1.1.0`: novo recurso compativel com a versao anterior.
-- `2.0.0`: mudanca grande ou incompatibilidade no fluxo de uso.
-
-Os scripts existentes com `Version: 1.0` devem ser tratados como `1.0.0` para proximas atualizacoes.
+Sempre siga o versionamento SemVer (`MAJOR.MINOR.PATCH`) e faça commits em português com prefixos semânticos padronizados.

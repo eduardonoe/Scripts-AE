@@ -684,7 +684,7 @@
         if (xLocal === null) return null;
         try {
             var t = grupo.property("ADBE Vector Transform Group");
-            return xLocal - t.property("ADBE Vector Anchor Point").value[0]
+            return xLocal - t.property("ADBE Vector Anchor").value[0]
                            + t.property("ADBE Vector Position").value[0];
         } catch (e) {
             return xLocal;
